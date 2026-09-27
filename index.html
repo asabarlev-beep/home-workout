@@ -726,6 +726,11 @@
     font-size:12px;
     white-space:nowrap;
   }
+  .set-log-side{
+    display:flex;
+    align-items:center;
+    gap:8px;
+  }
   .warmup-tag{
     color:var(--accent);
     font-size:11px;
@@ -1760,7 +1765,17 @@ async function renderExercises(){
 
   // per-set save
   list.querySelectorAll('.set-save-btn').forEach(btn => {
-    btn.addEventListener('click', () => saveIndividualSet(btn));
+    btn.addEventListener('click', () => {
+      if (!btn.classList.contains('saved')) return saveIndividualSet(btn);
+      const exId = btn.getAttribute('data-ex');
+      const setIdx = Number(btn.getAttribute('data-set'));
+      showConfirm(
+        'לבטל את הסט?',
+        `סט ${setIdx} של ${btn.getAttribute('data-exname')} יימחק מהיומן. הערכים בטופס יישארו כדי שתוכל לתקן ולשמור מחדש.`,
+        () => undoSavedSet(currentDayKey, exId, setIdx, btn),
+        'מחק סט'
+      );
+    });
   });
 
   // editing reps/weight after a set was saved invalidates its checkmark
@@ -3551,12 +3566,121 @@ async function deleteSession(dayKey, idx){
   if (dayKey === currentDayKey) renderExercises();
 }
 
+/* ---------------- delete a saved set ---------------- */
+
+async function loadSetLog(dayKey){
+  try {
+    const res = await window.storage.get('set-log:' + dayKey, false);
+    return (res && res.value) ? JSON.parse(res.value) : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+function sameSetEntry(a, b){
+  return !!a && !!b && a.exerciseId === b.exerciseId && a.setIndex === b.setIndex &&
+    a.date === b.date && a.time === b.time && a.reps === b.reps && a.weight === b.weight &&
+    !!a.warmup === !!b.warmup;
+}
+
+// Removes one set-log entry and rolls back what that set changed:
+// the "last time" hint for its slot and, if it was the record, the personal record.
+async function removeSetLogEntry(dayKey, log, idx){
+  const entry = log[idx];
+  log.splice(idx, 1);
+  try {
+    const ok = await window.storage.set('set-log:' + dayKey, JSON.stringify(log), false);
+    if (!ok) return false;
+  } catch (e) {
+    return false;
+  }
+
+  const data = await loadDayData(dayKey);
+  const exId = entry.exerciseId;
+  const slot = entry.setIndex - 1;
+
+  // "last time" hint: fall back to the newest remaining save of this slot, else the last full session
+  const lastRec = normalizeExRecord(data.last ? data.last[exId] : null);
+  const lastSet = lastRec && lastRec.sets ? lastRec.sets[slot] : null;
+  if (lastSet && lastSet.reps === entry.reps && lastSet.weight === entry.weight && !!lastSet.warmup === !!entry.warmup){
+    const prev = log.find(e => e.exerciseId === exId && e.setIndex === entry.setIndex);
+    const sessionRec = normalizeExRecord(data.history && data.history[0] && data.history[0].exercises ? data.history[0].exercises[exId] : null);
+    const sessionSet = sessionRec && sessionRec.sets ? sessionRec.sets[slot] : null;
+    lastRec.sets[slot] = prev
+      ? { reps: prev.reps, weight: prev.weight, warmup: !!prev.warmup }
+      : (sessionSet ? { ...sessionSet } : { reps: null, weight: null, warmup: false });
+    data.last[exId] = lastRec;
+  }
+
+  // personal record: recompute only if the deleted set was the one holding it
+  const pr = data.prs ? data.prs[exId] : null;
+  if (pr && !entry.warmup && entry.weight === pr.weight && entry.reps === pr.reps && entry.date === pr.date){
+    let best = null;
+    const consider = (weight, reps, date) => {
+      if (weight === null || weight === undefined) return;
+      const e1rm = est1RM(weight, reps);
+      if (!best || e1rm > best.e1rm) best = { weight, reps, e1rm, date };
+    };
+    log.forEach(e => { if (e.exerciseId === exId && !e.warmup) consider(e.weight, e.reps, e.date); });
+    (data.history || []).forEach(session => {
+      const rec = normalizeExRecord(session.exercises ? session.exercises[exId] : null);
+      if (rec && rec.sets) rec.sets.forEach(s => { if (s && !s.warmup) consider(s.weight, s.reps, session.date); });
+    });
+    if (best) data.prs[exId] = best;
+    else delete data.prs[exId];
+  }
+
+  return await saveDayData(dayKey, data);
+}
+
+async function deleteLoggedSet(dayKey, idx, entry){
+  const log = await loadSetLog(dayKey);
+  // the log may have changed since it was rendered — locate the exact entry again
+  const realIdx = sameSetEntry(log[idx], entry) ? idx : log.findIndex(e => sameSetEntry(e, entry));
+  if (realIdx === -1){
+    renderHistoryBody();
+    return;
+  }
+  const ok = await removeSetLogEntry(dayKey, log, realIdx);
+  showToast(ok ? 'הסט נמחק' : 'המחיקה נכשלה, נסה שוב');
+  renderHistoryBody();
+  if (ok && dayKey === currentDayKey) refreshExerciseCard(entry.exerciseId, entry.setIndex);
+}
+
+async function undoSavedSet(dayKey, exId, setIdx, btn){
+  const log = await loadSetLog(dayKey);
+  const idx = log.findIndex(e => e.exerciseId === exId && e.setIndex === setIdx); // newest first
+  if (idx === -1){
+    btn.classList.remove('saved');
+    return;
+  }
+  const ok = await removeSetLogEntry(dayKey, log, idx);
+  if (ok) btn.classList.remove('saved');
+  showToast(ok ? 'הסט בוטל' : 'הביטול נכשל, נסה שוב');
+  if (ok){
+    refreshExerciseCard(exId, setIdx);
+    if (typeof updateLiveVolumeDisplay === 'function') updateLiveVolumeDisplay();
+  }
+}
+
+// Updates the chips and placeholders of one card without wiping what's typed in the form
+function refreshExerciseCard(exId, setIdx){
+  const data = dayDataCache[currentDayKey];
+  const rec = normalizeExRecord(data && data.last ? data.last[exId] : null);
+  updateLastNoteDisplay(exId, rec);
+  const s = rec && rec.sets ? rec.sets[setIdx - 1] : null;
+  const repsInput = document.querySelector(`input[data-ex="${exId}"][data-set="${setIdx}"][data-field="reps"]`);
+  const weightInput = document.querySelector(`input[data-ex="${exId}"][data-set="${setIdx}"][data-field="weight"]`);
+  if (repsInput) repsInput.placeholder = s && s.reps !== null && s.reps !== undefined ? s.reps : '';
+  if (weightInput) weightInput.placeholder = s && s.weight !== null && s.weight !== undefined ? kgToDisplayUnit(s.weight) : '';
+}
+
 function renderSetLogBody(log, body){
   if (!log.length){
     body.innerHTML = '<div class="history-empty">עדיין לא נשמרו סטים בודדים ליום זה</div>';
     return;
   }
-  log.forEach(entry => {
+  log.forEach((entry, idx) => {
     const row = document.createElement('div');
     row.className = 'set-log-row';
     row.innerHTML = `
@@ -3564,8 +3688,19 @@ function renderSetLogBody(log, body){
         <div class="set-log-main">${entry.exerciseName} — סט ${entry.setIndex}${entry.warmup ? '<span class="warmup-tag">חימום</span>' : ''}</div>
         <div class="set-log-sub">${entry.reps ?? '-'} חזרות · ${formatWeight(entry.weight)}</div>
       </div>
-      <div class="set-log-time">${entry.date}<br>${entry.time}</div>
+      <div class="set-log-side">
+        <div class="set-log-time">${entry.date}<br>${entry.time}</div>
+        <button class="icon-btn danger set-log-delete-btn" title="מחק סט" aria-label="מחק סט">${ic('trash')}</button>
+      </div>
     `;
+    row.querySelector('.set-log-delete-btn').addEventListener('click', () => {
+      showConfirm(
+        'למחוק את הסט?',
+        `${entry.exerciseName} — סט ${entry.setIndex} (${entry.reps ?? '-'} חזרות · ${formatWeight(entry.weight)}) מ-${entry.date} ${entry.time} יימחק לצמיתות.`,
+        () => deleteLoggedSet(historyDayKey, idx, entry),
+        'מחק סט'
+      );
+    });
     body.appendChild(row);
   });
 }
