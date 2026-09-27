@@ -8,6 +8,9 @@ When the user talks about "יומן אימונים", "האפליקציה של ה
 - **Other files served by the worker:** `/storage.js` (defines `window.storage`), `/foods.js`, `/sw.js`, `/manifest.webmanifest`, icons.
   Until they are added to this repo, the only copies are on Cloudflare — do not deploy anything that would remove them.
 
+**Data lives only on the device** (confirmed: the desktop browser shows different data than the phone).
+There is no server-side copy — a wrong storage change or cleared browser data loses the user's history. The in-app backup (export/import of all keys) is the only safety net.
+
 ## Data model (never rename these storage keys — they hold the user's real history)
 All persistence goes through `window.storage.get/set/list(key, false)`, values are JSON strings.
 - `day-data:<dayKey>` → `{ history:[{date, exercises:{exId:{sets:[{reps,weight,warmup}], note}}}], last:{exId:rec}, prs:{exId:{weight,reps,e1rm,date}} }`
