@@ -31,3 +31,4 @@ All persistence goes through `window.storage.get/set/list(key, false)`, values a
 
 ## History of changes
 - 2026-09-27: delete a set saved by mistake — tap a saved ✓ to undo it, or 🗑 in History → "כל הסטים". Rolls back "last time" and recomputes the PR.
+- 2026-09-27: repo became the full deployable project (public/, src/worker.js, wrangler.jsonc) and was connected to Cloudflare Workers Builds — every push to main deploys.
