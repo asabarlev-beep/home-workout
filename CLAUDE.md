@@ -4,12 +4,17 @@ This repo is the source of the user's workout log — the "אימונים" icon 
 When the user talks about "יומן אימונים", "האפליקציה של האימונים", sets, exercises, PRs or nutrition — this is the app.
 
 - **Live URL:** https://workout-app.plants-app.workers.dev/ (Cloudflare Worker `workout-app`, same Cloudflare account as `plants-app`)
-- **Main file:** `index.html` — single-page app, Hebrew, RTL, dark theme (accent `#d7ff3f`)
-- **Other files served by the worker:** `/storage.js` (defines `window.storage`), `/foods.js`, `/sw.js`, `/manifest.webmanifest`, icons.
-  Until they are added to this repo, the only copies are on Cloudflare — do not deploy anything that would remove them.
+## Layout
+- `public/` — static files served as-is (Workers static assets). **Every file here is part of the live app; a deploy replaces the whole set, so never delete one.**
+  - `index.html` — the single-page app, Hebrew, RTL, dark theme (accent `#d7ff3f`)
+  - `storage.js` (defines `window.storage`), `foods.js`, `sw.js` (network-first cache), `manifest.webmanifest`, `icons/`
+- `src/worker.js` — handles `/api/*` only: password login (secret `APP_PASSWORD`, set in the dashboard) and a key/value sync API on D1.
+- `wrangler.jsonc` — worker name, assets folder, D1 binding `DB` → database `workout`.
 
-**Data lives only on the device** (confirmed: the desktop browser shows different data than the phone).
-There is no server-side copy — a wrong storage change or cleared browser data loses the user's history. The in-app backup (export/import of all keys) is the only safety net.
+## Where the data lives
+`storage.js` is local-first: every write goes to the browser's localStorage and is pushed in the background to D1 (`/api/kv`); on load the newer copy per key wins.
+So the data is on the phone **and** in D1 table `kv` (key, value, updated). A device that is not logged in shows only its own local data.
+Still remind the user to back up (in-app export) before any change that touches storage keys.
 
 ## Data model (never rename these storage keys — they hold the user's real history)
 All persistence goes through `window.storage.get/set/list(key, false)`, values are JSON strings.
@@ -19,9 +24,10 @@ All persistence goes through `window.storage.get/set/list(key, false)`, values a
 - Weights are stored in kg; `kgToDisplayUnit` / `displayUnitToKg` convert for display. PRs compare by estimated 1RM (`est1RM`, `prEst`).
 
 ## Working on it
-- Test in Playwright with a stub `storage.js` that keeps `window.storage` in memory, plus an empty `foods.js`, served over `python3 -m http.server`.
+- Test in Playwright with a stub `storage.js` that keeps `window.storage` in memory (note: the real `get` throws when a key is missing), served over `python3 -m http.server` from a copy of `public/`.
 - Check at phone width (390px). UI text is Hebrew.
-- Deploy: the user uploads `index.html` in the Cloudflare dashboard (Workers & Pages → workout-app). After deploying, the service worker may serve the old copy until the app is fully closed and reopened.
+- Deploy: push to `main`. Cloudflare Workers Builds (connected to this repo) runs `npx wrangler deploy`. Do **not** use "Edit code" → Deploy in the dashboard — it knows only the worker, not the assets.
+- The service worker is network-first, so a new version shows on the next load with signal.
 
 ## History of changes
 - 2026-09-27: delete a set saved by mistake — tap a saved ✓ to undo it, or 🗑 in History → "כל הסטים". Rolls back "last time" and recomputes the PR.

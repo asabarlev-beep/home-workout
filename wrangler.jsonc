@@ -1,0 +1,13 @@
+// Cloudflare Worker "workout-app" — https://workout-app.plants-app.workers.dev/
+// Deployed automatically by Cloudflare Workers Builds on every push to main.
+{
+  "name": "workout-app",
+  "main": "src/worker.js",
+  "compatibility_date": "2025-09-01",
+  // Static files (the app itself). Served directly; anything not found here goes to the worker (/api/*).
+  "assets": { "directory": "./public" },
+  "d1_databases": [
+    { "binding": "DB", "database_name": "workout", "database_id": "d710a40d-a945-4952-ba3f-4f0561c45766" }
+  ]
+  // Secret APP_PASSWORD is set in the Cloudflare dashboard — never put it in this file.
+}
