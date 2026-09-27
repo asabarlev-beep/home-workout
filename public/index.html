@@ -1876,6 +1876,113 @@ async function renderExercises(){
       if (g) document.getElementById('newExMuscle').value = g;
     });
   }
+
+  await restoreTodaySets(currentDayKey);
+}
+
+/* ---------------- sets saved with ✓ survive an app reload ----------------
+   The phone may reload the app in the background mid-workout, which empties the form.
+   Every ✓ set is already in set-log, so today's saved sets are put back into the form
+   (unless today's workout of this day was already finished). */
+
+function todayStr(){
+  return new Date().toLocaleDateString('he-IL');
+}
+
+// newest entry per exercise/set for one date: { exId: { setIndex: entry } }
+function setLogByDate(log, dateStr){
+  const out = {};
+  log.forEach(e => {
+    if (e.date !== dateStr) return;
+    const ex = out[e.exerciseId] || (out[e.exerciseId] = {});
+    if (!ex[e.setIndex]) ex[e.setIndex] = e; // log is newest-first
+  });
+  return out;
+}
+
+async function restoreTodaySets(dayKey){
+  const data = await loadDayData(dayKey);
+  const today = todayStr();
+  if (data.history && data.history[0] && data.history[0].date === today) return;
+  const saved = setLogByDate(await loadSetLog(dayKey), today);
+  if (dayKey !== currentDayKey) return;
+  let restored = false;
+  Object.entries(saved).forEach(([exId, sets]) => {
+    Object.entries(sets).forEach(([setIdx, e]) => {
+      const repsInput = document.querySelector(`input[data-ex="${exId}"][data-set="${setIdx}"][data-field="reps"]`);
+      const weightInput = document.querySelector(`input[data-ex="${exId}"][data-set="${setIdx}"][data-field="weight"]`);
+      if (!repsInput || !weightInput || repsInput.value || weightInput.value) return;
+      if (e.reps !== null && e.reps !== undefined) repsInput.value = e.reps;
+      if (e.weight !== null && e.weight !== undefined) weightInput.value = kgToDisplayUnit(e.weight);
+      const idxBtn = document.querySelector(`.set-idx-btn[data-ex="${exId}"][data-set="${setIdx}"]`);
+      if (idxBtn) idxBtn.classList.toggle('warmup', !!e.warmup);
+      const saveBtn = document.querySelector(`.set-save-btn[data-ex="${exId}"][data-set="${setIdx}"]`);
+      if (saveBtn) saveBtn.classList.add('saved');
+      restored = true;
+    });
+  });
+  if (restored){
+    updateLiveVolumeDisplay();
+    autoStartWorkoutClock();
+  }
+}
+
+// fills the empty sets of a session from the ✓ sets saved that day; returns true if anything changed
+function fillSessionFromLog(session, log, setsCount){
+  const saved = setLogByDate(log, session.date);
+  let changed = false;
+  Object.entries(saved).forEach(([exId, sets]) => {
+    let rec = normalizeExRecord(session.exercises[exId]);
+    if (!rec) rec = { sets: [], note: '' };
+    const need = Math.max(setsCount || 0, ...Object.keys(sets).map(Number));
+    while (rec.sets.length < need) rec.sets.push({ reps: null, weight: null, warmup: false });
+    Object.entries(sets).forEach(([setIdx, e]) => {
+      if (hasSetData(rec.sets[setIdx - 1])) return; // never overwrite what the session already has
+      rec.sets[setIdx - 1] = { reps: e.reps ?? null, weight: e.weight ?? null, warmup: !!e.warmup };
+      changed = true;
+    });
+    session.exercises[exId] = rec;
+  });
+  return changed;
+}
+
+// Repairs finished workouts that lost sets because the form was emptied before "סיום":
+// fills empty sets from set-log and merges two sessions saved on the same date. Only adds data.
+async function repairSessionsFromSetLog(){
+  for (const day of DAYS){
+    const data = await loadDayData(day.key);
+    if (!data.history || !data.history.length) continue;
+    const log = await loadSetLog(day.key);
+    let changed = false;
+
+    // merge sessions of the same date into the newest one
+    const merged = [];
+    data.history.forEach(s => {
+      const same = merged.find(m => m.date === s.date);
+      if (!same){ merged.push(s); return; }
+      Object.entries(s.exercises || {}).forEach(([exId, r]) => {
+        const older = normalizeExRecord(r);
+        const cur = normalizeExRecord(same.exercises[exId]);
+        if (!cur){ same.exercises[exId] = older; return; }
+        (older.sets || []).forEach((set, i) => { if (!hasSetData(cur.sets[i]) && hasSetData(set)) cur.sets[i] = set; });
+        if (!cur.note && older.note) cur.note = older.note;
+        same.exercises[exId] = cur;
+      });
+      changed = true;
+    });
+    data.history = merged;
+
+    data.history.forEach(s => { if (fillSessionFromLog(s, log, day.setsCount)) changed = true; });
+    if (!changed) continue;
+
+    // "last time" hints: take the repaired newest session for exercises whose hint lost its data
+    data.last = data.last || {};
+    Object.entries(data.history[0].exercises).forEach(([exId, r]) => {
+      const last = normalizeExRecord(data.last[exId]);
+      if (!last || !(last.sets || []).some(hasSetData)) data.last[exId] = r;
+    });
+    await saveDayData(day.key, data);
+  }
 }
 
 function selectDay(key){
@@ -2062,6 +2169,12 @@ async function saveWorkout(){
     exercisesData[ex.id] = { sets, note: noteInput ? noteInput.value.trim() : '' };
   });
 
+  // sets saved with ✓ today count even if the form was emptied (app reloaded in the background)
+  const draft = { date: todayStr(), exercises: exercisesData };
+  fillSessionFromLog(draft, await loadSetLog(currentDayKey), day.setsCount);
+  Object.keys(exercisesData).forEach(exId => { exercisesData[exId] = draft.exercises[exId]; });
+  if (Object.values(exercisesData).some(r => r.sets.some(hasSetData))) anyFilled = true;
+
   if (!anyFilled){
     showToast('לא הוזנו נתונים לשמירה');
     return;
@@ -2093,6 +2206,18 @@ async function saveWorkout(){
 
   const session = { date: dateStr, exercises: exercisesData };
   data.history = data.history || [];
+  const earlier = data.history[0] && data.history[0].date === dateStr ? data.history[0] : null;
+  if (earlier){
+    // "סיום" pressed twice on the same day: one session, keeping sets from both
+    Object.entries(earlier.exercises || {}).forEach(([exId, r]) => {
+      const old = normalizeExRecord(r);
+      const cur = exercisesData[exId];
+      if (!cur){ exercisesData[exId] = old; return; }
+      (old.sets || []).forEach((set, i) => { if (!hasSetData(cur.sets[i]) && hasSetData(set)) cur.sets[i] = set; });
+      if (!cur.note && old.note) cur.note = old.note;
+    });
+    data.history.shift();
+  }
   data.history.unshift(session);
   data.history = data.history.slice(0, 12);
   data.last = exercisesData;
@@ -3956,6 +4081,7 @@ document.getElementById('weeklyOverlay').addEventListener('click', (e) => {
 async function init(){
   const overrides = await loadOverrides();
   DAYS = buildDays(overrides);
+  try { await repairSessionsFromSetLog(); } catch (e) { console.error(e); }
   await loadDeload();
   renderDeloadBanner();
   selectDay(await pickDefaultDay());

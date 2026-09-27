@@ -32,3 +32,4 @@ All persistence goes through `window.storage.get/set/list(key, false)`, values a
 ## History of changes
 - 2026-09-27: delete a set saved by mistake — tap a saved ✓ to undo it, or 🗑 in History → "כל הסטים". Rolls back "last time" and recomputes the PR.
 - 2026-09-27: repo became the full deployable project (public/, src/worker.js, wrangler.jsonc) and was connected to Cloudflare Workers Builds — every push to main deploys.
+- 2026-09-27: fix lost sets on "סיום" — the phone reloads the app mid-workout and empties the form, so only the last exercise was saved (22.9, 24.9, 27.9). Now: ✓ sets are restored into the form after a reload (`restoreTodaySets`), "סיום" fills empty sets from today's set-log and merges into a session already saved today, and on startup `repairSessionsFromSetLog` fills past sessions from set-log and merges same-date sessions (only adds data).
