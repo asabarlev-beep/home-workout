@@ -1083,6 +1083,16 @@
 
   /* weekly trend block */
   .trend{ background:var(--bg); border-radius:16px; padding:14px; margin-bottom:18px; }
+  .coach-lead{ font-size:15px; line-height:1.5; margin:0 0 14px; }
+  .coach-item{ background:var(--bg); border-radius:14px; padding:12px 14px; margin-bottom:10px; border-inline-start:4px solid var(--line); }
+  .coach-item.high{ border-inline-start-color:var(--danger); }
+  .coach-item.mid{ border-inline-start-color:#ffb347; }
+  .coach-item.good{ border-inline-start-color:var(--accent); }
+  .coach-item b{ display:block; font-size:15px; margin-bottom:4px; }
+  .coach-item .why{ color:var(--muted); font-size:13px; line-height:1.45; }
+  .coach-item .act{ font-size:14px; margin-top:6px; line-height:1.45; }
+  .coach-sec{ font-size:13px; font-weight:800; color:var(--muted); margin:18px 0 8px; }
+  .coach-next{ background:var(--accent); color:#0b0d11; border-radius:14px; padding:12px 14px; font-weight:700; line-height:1.45; margin-top:16px; }
   .trend-title{ font-size:15px; font-weight:800; margin-bottom:10px; }
   .trend-row{ display:flex; justify-content:space-between; align-items:baseline; gap:8px; font-size:14px; flex-wrap:wrap; }
   .trend-row span{ color:var(--muted); }
@@ -1269,11 +1279,22 @@
       <button class="history-close" id="moreCloseBtn" aria-label="סגור"><i data-ic="x"></i></button>
     </div>
     <div style="padding:10px 18px 24px;display:flex;flex-direction:column;gap:10px;">
+      <button class="reset-btn" id="openCoachBtn" style="text-align:right;"><i data-ic="trophy"></i> דוח מאמן — שדרוגים</button>
       <button class="reset-btn" id="openWeeklyBtn" style="text-align:right;"><i data-ic="trend"></i> סיכום שבועי ודילוד</button>
       <button class="reset-btn" id="openBwBtn" style="text-align:right;"><i data-ic="scale"></i> מעקב משקל גוף</button>
       <button class="reset-btn" id="openNutBtn" style="text-align:right;"><i data-ic="apple"></i> יומן תזונה</button>
       <button class="reset-btn" id="openBackupBtn" style="text-align:right;"><i data-ic="swap"></i> גיבוי וייבוא נתונים</button>
     </div>
+  </div>
+</div>
+
+<div class="history-overlay" id="coachOverlay">
+  <div class="history-panel">
+    <div class="history-head">
+      <h2>דוח מאמן</h2>
+      <button class="history-close" id="coachCloseBtn" aria-label="סגור"><i data-ic="x"></i></button>
+    </div>
+    <div id="coachBody" style="padding:16px 18px 30px"></div>
   </div>
 </div>
 
@@ -4076,6 +4097,191 @@ document.getElementById('weeklyCloseBtn').addEventListener('click', () => {
 });
 document.getElementById('weeklyOverlay').addEventListener('click', (e) => {
   if (e.target.id === 'weeklyOverlay') document.getElementById('weeklyOverlay').classList.remove('open');
+});
+
+/* ---------------- coach report: prioritized upgrades from the user's own data ----------------
+   Rules follow the plan's coaching principles (40+, hypertrophy): double progression inside the rep range,
+   10–20 working sets per muscle a week, each muscle twice a week, deload every 5–8 weeks,
+   and a stall = no rise in estimated 1RM over three sessions. */
+
+const MAJOR_MUSCLES = ['חזה', 'גב', 'כתפיים', 'ארבע ראשי', 'ירך אחורית'];
+const PLANNED_PER_WEEK = 5;
+
+// every recorded session per exercise: [{ date:Date, dateStr, sets:[{reps,weight}] }] oldest first
+async function exerciseTimeline(){
+  const out = {};
+  for (const day of DAYS){
+    const data = await loadDayData(day.key);
+    const log = await loadSetLog(day.key);
+    const byDate = {};
+    (data.history || []).forEach(s => {
+      Object.entries(s.exercises || {}).forEach(([exId, r]) => {
+        const sets = ((normalizeExRecord(r) || {}).sets || []).filter(x => x && !x.warmup && hasSetData(x));
+        if (sets.length) (byDate[exId] = byDate[exId] || {})[s.date] = sets;
+      });
+    });
+    Object.entries(setLogByDateAll(log)).forEach(([exId, dates]) => {
+      Object.entries(dates).forEach(([dateStr, sets]) => {
+        const have = (byDate[exId] = byDate[exId] || {});
+        if (!have[dateStr] || have[dateStr].length < sets.length) have[dateStr] = sets;
+      });
+    });
+    Object.entries(byDate).forEach(([exId, dates]) => {
+      out[exId] = (out[exId] || []).concat(Object.entries(dates).map(([dateStr, sets]) => ({ date: parseHeDate(dateStr), dateStr, sets })));
+    });
+  }
+  Object.values(out).forEach(list => list.sort((a, b) => a.date - b.date));
+  return out;
+}
+
+// working sets from set-log grouped by exercise and date (newest save per slot)
+function setLogByDateAll(log){
+  const out = {};
+  const seen = new Set();
+  log.forEach(e => {
+    if (e.warmup) return;
+    const k = e.exerciseId + '|' + e.date + '|' + e.setIndex;
+    if (seen.has(k)) return;
+    seen.add(k);
+    if (!hasSetData(e)) return;
+    ((out[e.exerciseId] = out[e.exerciseId] || {})[e.date] = out[e.exerciseId][e.date] || []).push({ reps: e.reps, weight: e.weight });
+  });
+  return out;
+}
+
+const bestE1RM = (sets) => Math.max(0, ...sets.filter(s => s.weight != null).map(s => est1RM(s.weight, s.reps)));
+
+async function buildCoachReport(){
+  const items = [];   // { level:'high'|'mid'|'good', title, why, act }
+  const add = (level, title, why, act) => items.push({ level, title, why, act });
+  const timeline = await exerciseTimeline();
+  const exList = [];
+  DAYS.forEach(d => activeExercises(d).forEach(ex => exList.push({ ...ex, dayKey: d.key, dayLabel: d.label })));
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const daysAgo = (d) => Math.round((today - d) / 86400000);
+
+  // 1. per exercise: ready to go up, stalled, reps outside the range, performance drop
+  const readyUp = [], stalled = [], tooHeavy = [], tooLight = [], dropped = [], suspicious = [];
+  let enoughHistory = 0;
+  const bodyweight = (ex) => /מתח|מקבילים|שכיבות|pull ?up|chin|dip/i.test(ex.name || '');
+  exList.forEach(ex => {
+    const all = timeline[ex.id] || [];
+    // obvious typos (e.g. 86 reps) would distort every calculation, so they are reported and left out
+    all.forEach(s => s.sets.forEach(x => { if (x.reps != null && x.reps > 40) suspicious.push(`${ex.name}: ${x.reps} חזרות (${s.dateStr})`); }));
+    const sessions = all.map(s => ({ ...s, sets: s.sets.filter(x => !(x.reps != null && x.reps > 40)) })).filter(s => s.sets.length);
+    if (!sessions.length) return;
+    const last = sessions[sessions.length - 1];
+    if (!bodyweight(ex) && last.sets.some(x => x.weight == null)) suspicious.push(`${ex.name}: סט בלי משקל (${last.dateStr})`);
+    const range = repRange(ex.target);
+    const next = nextWeightSuggestion(ex, { sets: last.sets });
+    if (next && next.kind === 'up') readyUp.push(`${ex.name}: ${formatWeight(next.weight)}`);
+    if (range){
+      const reps = last.sets.map(x => x.reps).filter(r => r != null);
+      const span = reps.length ? (Math.min(...reps) === Math.max(...reps) ? `${reps[0]}` : `${Math.min(...reps)}–${Math.max(...reps)}`) : '';
+      if (reps.some(r => r < range.lo - 1)) tooHeavy.push(`${ex.name}: ${span} חזרות, יעד ${range.lo}–${range.hi}`);
+      else if (reps.length && reps.every(r => r > range.hi + 2)) tooLight.push(`${ex.name}: ${span} חזרות, יעד ${range.lo}–${range.hi}`);
+    }
+    if (sessions.length >= 3){
+      enoughHistory++;
+      const recent = sessions.slice(-3).map(s => bestE1RM(s.sets));
+      const before = sessions.slice(0, -2).map(s => bestE1RM(s.sets));
+      if (Math.max(recent[1], recent[2]) <= recent[0] && next && next.kind !== 'up') stalled.push(ex.name);
+      const peak = Math.max(...before);
+      if (peak > 0 && bestE1RM(last.sets) < peak * 0.93) dropped.push(ex.name);
+    }
+  });
+
+  // 2. weekly volume and frequency per muscle
+  const totals = await computeWeeklyVolume();
+  const freq = {};
+  Object.entries(timeline).forEach(([exId, sessions]) => {
+    const planEx = exList.find(e => e.id === exId);
+    const muscle = MUSCLE_OF[exId] || (planEx && (planEx.muscle || guessMuscle(planEx.name))) || 'אחר';
+    sessions.filter(s => daysAgo(s.date) < 7).forEach(s => (freq[muscle] = freq[muscle] || new Set()).add(s.dateStr));
+  });
+  const lowVol = MAJOR_MUSCLES.filter(m => (totals[m] || 0) < 10);
+  const highVol = MUSCLE_ORDER.filter(m => m !== 'אחר' && (totals[m] || 0) > 20);
+  const onceAWeek = MAJOR_MUSCLES.filter(m => freq[m] && freq[m].size === 1);
+
+  // 3. consistency: distinct training dates
+  const dates = new Set();
+  Object.values(timeline).forEach(list => list.forEach(s => dates.add(s.dateStr)));
+  const dateObjs = [...dates].map(parseHeDate).filter(Boolean);
+  const last7 = dateObjs.filter(d => daysAgo(d) < 7).length;
+  const lastWorkout = dateObjs.length ? Math.min(...dateObjs.map(daysAgo)) : null;
+
+  // 4. recovery and nutrition signals already tracked by the app
+  const week = blockWeek();
+  const protein = await computeProteinWeek();
+  const rate = await computeWeightRate();
+
+  // ---- turn the signals into upgrades, most important first ----
+  if (dropped.length >= 2 || (dropped.length && week >= 5)){
+    add('high', 'סימני עייפות מצטברת', 'ירידה של יותר מ-7% בכוח המשוער לעומת השיא ב:<br>' + listHtml(dropped), week >= 5 ? `אתה בשבוע ${week} בבלוק. זה הזמן לשבוע דילוד: חצי מהסטים, אותם משקלים, בלי כישלון.` : 'בדוק שינה (7–9 שעות) וחלבון השבוע. אם הירידה נמשכת עוד אימון, קח שבוע דילוד.');
+  } else if (week >= 8){
+    add('high', `שבוע ${week} בלי דילוד`, 'אחרי גיל 40 ההתאוששות איטית יותר, ועייפות מצטברת מסתירה התקדמות.', 'תכנן את השבוע הבא כשבוע קל: חצי מהסטים, בלי כישלון. אחריו "התחל בלוק חדש" בסיכום השבועי.');
+  } else if (week >= 5){
+    add('mid', `שבוע ${week} בבלוק`, 'דילוד מתוכנן כל 5–8 שבועות שומר על מפרקים ועל התקדמות.', 'שים לב לשינה ולביצועים. בירידה ראשונה — שבוע קל.');
+  }
+
+  const listHtml = (arr, max = 5) => { const u = [...new Set(arr)]; return u.slice(0, max).map(t => `• ${t}`).join('<br>') + (u.length > max ? `<br>ועוד ${u.length - max}` : ''); };
+  if (suspicious.length) add('high', 'נתונים לבדיקה', listHtml(suspicious), 'אם זו טעות הקלדה, תקן או מחק את הסט בהיסטוריה ← "כל הסטים". נתון שגוי מבלבל את ההמלצות להעלאת משקל ואת השיאים.');
+  if (tooHeavy.length) add('high', `חזרות מתחת לטווח (${new Set(tooHeavy).size} תרגילים)`, listHtml(tooHeavy), 'בתרגילי בידוד (ידיים, כתפיים, תאומים) הורד משקל עד שתגיע לתחתית הטווח. שם השריר גדל, והמרפקים והכתפיים נשמרים. בתרגילים הכבדים 1–2 חזרות מתחת לטווח זה בסדר.');
+  if (lowVol.length) add('high', 'נפח נמוך לשרירים גדולים', `ב-7 הימים האחרונים: ${lowVol.map(m => `${m} ${totals[m] || 0}`).join(' · ')} סטים. היעד 10–20 לשבוע.`, 'הוסף סט אחד לתרגיל הראשון של השריר בכל אימון שלו. מעלים בהדרגה, לא הכול בבת אחת.');
+  if (stalled.length) add('mid', 'תרגילים תקועים', 'אין עלייה בכוח המשוער ב-3 האימונים האחרונים:<br>' + listHtml(stalled), 'קודם שינה, חלבון ו-RIR 1–2 בסט האחרון. אם עוד שבועיים אין תזוזה — החלף וריאציה (למשל משקולות יד ↔ כבל) או הוסף סט.');
+  if (tooLight.length) add('mid', 'משקל קל מדי', listHtml(tooLight), 'העלה משקל כבר באימון הבא. מעל הטווח זה כבר אימון סיבולת.');
+  if (highVol.length) add('mid', 'נפח גבוה', `${highVol.map(m => `${m} ${totals[m]}`).join(' · ')} סטים בשבוע — מעל 20.`, 'מעל 20 סטים לשריר ההתאוששות אחרי 40 נפגעת. הורד סט מהתרגיל האחרון של השריר.');
+  if (onceAWeek.length && last7 >= 3) add('mid', 'שריר שעובד פעם בשבוע', `${onceAWeek.join(', ')} קיבלו השבוע אימון אחד בלבד.`, 'היעד פעמיים בשבוע לכל שריר. אם התוכנית מאפשרת, העבר 2–3 סטים לאימון נוסף.');
+  if (lastWorkout !== null && lastWorkout >= 4) add('high', `${lastWorkout} ימים בלי אימון`, 'הפסקה של כמה ימים לא מאבדת שריר, אבל רצף בונה אותו.', 'אימון אחד קצר היום-מחר מחזיר את הקצב. אפשר גם רק שני תרגילים ראשונים.');
+  else if (last7 && last7 < 3) add('mid', `${last7} אימונים השבוע`, `התוכנית בנויה ל-${PLANNED_PER_WEEK} אימונים. פחות מזה, חלק מהשרירים לא מקבלים מספיק נפח.`, 'קבע מראש ביומן את האימונים של השבוע הבא.');
+
+  if (protein && protein.avg < protein.goal * 0.85) add('high', 'חסר חלבון', `ממוצע ${Math.round(protein.avg)} ג׳ ליום מול יעד ${protein.goal} ג׳.`, 'הוסף מנת חלבון של 30–40 ג׳ (יוגורט חלבון, קוטג׳, שייק) בארוחה שבה אתה הכי חסר. אחרי 40 צריך יותר חלבון בכל ארוחה.');
+  else if (!protein) add('mid', 'אין נתוני תזונה', 'בלי מעקב חלבון אי אפשר לדעת אם התזונה תומכת בבניית שריר.', 'רשום אוכל ב"יומן תזונה" 3–4 ימים בשבוע, מספיק כדי לראות ממוצע.');
+  if (rate !== null && rate < WEIGHT_GAIN_TARGET.min) add('mid', 'משקל הגוף כמעט לא עולה', `שינוי של ${rate.toFixed(2)} ק״ג בשבוע. היעד ${WEIGHT_GAIN_TARGET.min}–${WEIGHT_GAIN_TARGET.max}.`, 'הוסף כ-200 קלוריות ביום, עדיף פחמימות סביב האימון.');
+  else if (rate !== null && rate > WEIGHT_GAIN_TARGET.max) add('mid', 'עלייה מהירה במשקל', `+${rate.toFixed(2)} ק״ג בשבוע — חלק מזה שומן.`, 'הורד כ-150 קלוריות ביום.');
+  else if (rate === null) add('mid', 'אין מספיק שקילות', 'כדי לדעת אם אתה בעודף קלורי צריך ממוצע שבועי.', 'שקול את עצמך 2–3 בבוקר בשבוע ב"מעקב משקל גוף".');
+
+  // what is working
+  if (readyUp.length) add('good', 'מוכן לעלות במשקל', 'הגעת לראש טווח החזרות בכל הסטים. המשקל הבא:', [...new Set(readyUp)].join('<br>'));
+  if (last7 >= 4) add('good', `${last7} אימונים השבוע`, 'עקביות היא המנוע של בניית שריר.', 'להמשיך בדיוק ככה.');
+  if (rate !== null && rate >= WEIGHT_GAIN_TARGET.min && rate <= WEIGHT_GAIN_TARGET.max) add('good', 'קצב עלייה במשקל מצוין', `+${rate.toFixed(2)} ק״ג בשבוע.`, 'אל תשנה קלוריות.');
+  if (protein && protein.avg >= protein.goal) add('good', 'חלבון ביעד', `ממוצע ${Math.round(protein.avg)} ג׳ ליום.`, 'להמשיך.');
+
+  return { items, enoughHistory, totalExercises: exList.length, last7 };
+}
+
+async function renderCoach(){
+  const body = document.getElementById('coachBody');
+  body.innerHTML = '<div style="color:var(--muted)">מנתח את האימונים שלך…</div>';
+  const r = await buildCoachReport();
+  const order = { high: 0, mid: 1, good: 2 };
+  const fixes = r.items.filter(i => i.level !== 'good').sort((a, b) => order[a.level] - order[b.level]);
+  const good = r.items.filter(i => i.level === 'good');
+  const card = (i) => `<div class="coach-item ${i.level}"><b>${i.title}</b><div class="why">${i.why}</div><div class="act">${i.act}</div></div>`;
+  const lead = !fixes.length
+    ? 'אין כרגע משהו דחוף לשפר. התוכנית עובדת — המשך להעלות משקל כשהמערכת מסמנת.'
+    : fixes[0].level === 'high'
+      ? `יש ${fixes.filter(i => i.level === 'high').length === 1 ? 'דבר אחד חשוב' : fixes.filter(i => i.level === 'high').length + ' דברים חשובים'} לתקן. מתחילים מהראשון.`
+      : 'אתה בכיוון טוב. יש כמה שדרוגים שיוסיפו התקדמות.';
+  const dataNote = r.enoughHistory < Math.min(3, r.totalExercises)
+    ? '<div class="why" style="margin-bottom:12px">זיהוי תרגילים תקועים וירידה בכוח מתחיל אחרי 3 אימונים לכל תרגיל. ככל שתתאמן יותר, הדוח יהיה מדויק יותר.</div>' : '';
+  body.innerHTML = `<p class="coach-lead">${lead}</p>${dataNote}
+    ${fixes.length ? `<div class="coach-sec">שדרוגים לפי סדר חשיבות</div>${fixes.map(card).join('')}` : ''}
+    ${good.length ? `<div class="coach-sec">מה עובד</div>${good.map(card).join('')}` : ''}
+    ${fixes.length ? `<div class="coach-next">הצעד הבא: ${fixes[0].act}</div>` : ''}
+    <div class="why" style="margin-top:16px">הדוח מבוסס על הנתונים באפליקציה ועל עקרונות אימון לבניית שריר בגיל 40+. הוא לא מחליף רופא — בכאב חד או מחמיר, עצור את התרגיל.</div>`;
+}
+
+document.getElementById('openCoachBtn').addEventListener('click', () => {
+  document.getElementById('moreOverlay').classList.remove('open');
+  renderCoach();
+  document.getElementById('coachOverlay').classList.add('open');
+});
+document.getElementById('coachCloseBtn').addEventListener('click', () => {
+  document.getElementById('coachOverlay').classList.remove('open');
+});
+document.getElementById('coachOverlay').addEventListener('click', (e) => {
+  if (e.target.id === 'coachOverlay') document.getElementById('coachOverlay').classList.remove('open');
 });
 
 async function init(){
