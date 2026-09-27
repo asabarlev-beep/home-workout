@@ -1770,8 +1770,8 @@ async function renderExercises(){
       const exId = btn.getAttribute('data-ex');
       const setIdx = Number(btn.getAttribute('data-set'));
       showConfirm(
-        'לבטל את הסט?',
-        `סט ${setIdx} של ${btn.getAttribute('data-exname')} יימחק מהיומן. הערכים בטופס יישארו כדי שתוכל לתקן ולשמור מחדש.`,
+        'למחוק את הסט?',
+        `סט ${setIdx} של ${btn.getAttribute('data-exname')} יימחק מהיומן והשורה תתרוקן.`,
         () => undoSavedSet(currentDayKey, exId, setIdx, btn),
         'מחק סט'
       );
@@ -3655,15 +3655,27 @@ async function undoSavedSet(dayKey, exId, setIdx, btn){
     return;
   }
   const ok = await removeSetLogEntry(dayKey, log, idx);
-  if (ok) btn.classList.remove('saved');
-  showToast(ok ? 'הסט בוטל' : 'הביטול נכשל, נסה שוב');
+  if (ok){
+    btn.classList.remove('saved');
+    clearSetRow(exId, setIdx);
+  }
+  showToast(ok ? 'הסט נמחק' : 'המחיקה נכשלה, נסה שוב');
   if (ok){
     refreshExerciseCard(exId, setIdx);
     if (typeof updateLiveVolumeDisplay === 'function') updateLiveVolumeDisplay();
   }
 }
 
-// Updates the chips and placeholders of one card without wiping what's typed in the form
+// Empties the reps/weight of a deleted set, so it is not counted in the live totals
+// and does not come back when the workout is saved at the end
+function clearSetRow(exId, setIdx){
+  ['reps', 'weight'].forEach(field => {
+    const input = document.querySelector(`input[data-ex="${exId}"][data-set="${setIdx}"][data-field="${field}"]`);
+    if (input) input.value = '';
+  });
+}
+
+// Updates the chips and placeholders of one card
 function refreshExerciseCard(exId, setIdx){
   const data = dayDataCache[currentDayKey];
   const rec = normalizeExRecord(data && data.last ? data.last[exId] : null);
