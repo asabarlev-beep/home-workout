@@ -1101,6 +1101,14 @@
   .bw-step{ width:52px; height:52px; flex:none; border-radius:16px; border:1px solid var(--line); background:var(--bg); color:var(--text); font-size:26px; font-weight:700; }
   .bw-step:active{ background:var(--accent); color:#0b0d11; }
   .bw-field{ flex:1; display:flex; align-items:baseline; justify-content:center; gap:6px; background:var(--bg); border-radius:16px; height:52px; }
+  .bw-field{ border:0; padding:0; font:inherit; cursor:pointer; }
+  .bw-field.editing{ box-shadow:0 0 0 2px var(--accent) inset; }
+  .bw-field input{ pointer-events:none; caret-color:transparent; }
+  .bw-keypad{ display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-top:12px; direction:ltr; }
+  .bw-keypad[hidden]{ display:none; }
+  .bw-keypad button{ height:54px; border-radius:14px; border:1px solid var(--line); background:var(--bg); color:var(--text); font-size:24px; font-weight:700; }
+  .bw-keypad button:active{ background:var(--accent); color:#0b0d11; }
+  .bw-hint{ color:var(--muted); font-size:12px; text-align:center; margin-top:8px; }
   .bw-field input{ width:100%; min-width:0; background:transparent; border:0; outline:0; color:var(--text); font-size:30px; font-weight:800; text-align:center; direction:ltr; padding:0; height:52px; }
   .bw-field span{ color:var(--muted); font-size:14px; flex:none; padding-inline-end:14px; }
   .bw-error{ color:var(--danger); font-size:13px; min-height:18px; text-align:center; margin:6px 0 2px; }
@@ -1353,9 +1361,16 @@
         </div>
         <div class="bw-stepper">
           <button type="button" class="bw-step" id="bwMinus" aria-label="פחות 0.1">−</button>
-          <div class="bw-field"><input type="text" inputmode="decimal" id="bwInput" autocomplete="off" aria-label="משקל"><span id="bwUnit"></span></div>
+          <button type="button" class="bw-field" id="bwField" aria-label="הקלד משקל"><input type="text" id="bwInput" readonly tabindex="-1" aria-hidden="true"><span id="bwUnit"></span></button>
           <button type="button" class="bw-step" id="bwPlus" aria-label="עוד 0.1">+</button>
         </div>
+        <div class="bw-keypad" id="bwKeypad" hidden>
+          <button type="button" data-k="1">1</button><button type="button" data-k="2">2</button><button type="button" data-k="3">3</button>
+          <button type="button" data-k="4">4</button><button type="button" data-k="5">5</button><button type="button" data-k="6">6</button>
+          <button type="button" data-k="7">7</button><button type="button" data-k="8">8</button><button type="button" data-k="9">9</button>
+          <button type="button" data-k=".">.</button><button type="button" data-k="0">0</button><button type="button" data-k="del" aria-label="מחק ספרה">⌫</button>
+        </div>
+        <div class="bw-hint" id="bwHint">הקש על המספר כדי להקליד, או השתמש ב־− ו־+</div>
         <div class="bw-error" id="bwError"></div>
         <button class="save-btn bw-save" id="bwSaveBtn">שמור שקילה</button>
       </div>
@@ -2974,6 +2989,7 @@ async function addBodyWeightEntry(rawVal){
   log.sort((x, y) => (parseHeDate(y.date) || 0) - (parseHeDate(x.date) || 0));
   log = log.slice(0, BODYWEIGHT_MAX);
   const ok = await saveBodyWeightLog(log);
+  bwKeypadOpen(false);
   showToast(ok ? (existingIdx !== -1 ? 'השקילה עודכנה ✓' : 'השקילה נשמרה ✓') : 'השמירה נכשלה, נסה שוב');
   renderBodyWeightPanel();
 }
@@ -3098,6 +3114,7 @@ async function renderBodyWeightPanel(){
 
 function openBodyWeight(){
   bwDayOffset = 0;
+  bwKeypadOpen(false);
   renderBodyWeightPanel();
   document.getElementById('bodyweightOverlay').classList.add('open');
 }
@@ -3108,6 +3125,7 @@ function bwNudge(delta){
   const base = cur !== null ? cur : 70;
   input.value = (Math.round((base + delta) * 10) / 10).toFixed(1);
   document.getElementById('bwError').textContent = '';
+  bwFresh = false;
 }
 document.getElementById('bwMinus').addEventListener('click', () => bwNudge(-0.1));
 document.getElementById('bwPlus').addEventListener('click', () => bwNudge(0.1));
@@ -3115,17 +3133,26 @@ document.querySelectorAll('.bw-day').forEach(btn => btn.addEventListener('click'
   bwDayOffset = Number(btn.dataset.bwday);
   renderBodyWeightPanel();
 }));
-// the field starts filled with the last weight: select it on tap so typing replaces it instead of appending
-// ("6767.8"), and keep the field above the keyboard
-['focus', 'click'].forEach(t => document.getElementById('bwInput').addEventListener(t, (e) => {
-  const el = e.target;
-  setTimeout(() => { try { el.setSelectionRange(0, el.value.length); } catch (err) { el.select(); } }, 0);
-  if (t === 'focus') setTimeout(() => el.closest('.bw-entry').scrollIntoView({ block: 'center', behavior: 'smooth' }), 300);
+// Typing goes through an in-app keypad: on some phones the system keyboard did not open in this sheet.
+let bwFresh = true; // the first key replaces the prefilled weight
+function bwKeypadOpen(open){
+  document.getElementById('bwKeypad').hidden = !open;
+  document.getElementById('bwHint').hidden = open;
+  document.getElementById('bwField').classList.toggle('editing', open);
+  bwFresh = true;
+}
+document.getElementById('bwField').addEventListener('click', () => bwKeypadOpen(document.getElementById('bwKeypad').hidden));
+document.querySelectorAll('#bwKeypad [data-k]').forEach(btn => btn.addEventListener('click', () => {
+  const input = document.getElementById('bwInput');
+  const k = btn.dataset.k;
+  let v = bwFresh ? '' : input.value;
+  bwFresh = false;
+  if (k === 'del') v = v.slice(0, -1);
+  else if (k === '.') { if (!v.includes('.')) v = (v || '0') + '.'; }
+  else if (/^\d{0,3}(\.\d?)?$/.test(v + k) && (v + k).replace('.', '').length <= 4) v = v + k;
+  input.value = v;
+  document.getElementById('bwError').textContent = '';
 }));
-document.getElementById('bwInput').addEventListener('input', () => { document.getElementById('bwError').textContent = ''; });
-document.getElementById('bwInput').addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') addBodyWeightEntry(e.target.value);
-});
 document.getElementById('bwSaveBtn').addEventListener('click', () => {
   addBodyWeightEntry(document.getElementById('bwInput').value);
 });
@@ -4462,7 +4489,7 @@ document.getElementById('coachOverlay').addEventListener('click', (e) => {
 });
 
 // bump on every change that reaches the phone, and add a line to "History of changes" in CLAUDE.md
-const APP_VERSION = '1.9';
+const APP_VERSION = '1.10';
 const APP_VERSION_DATE = '28.9.2026';
 document.getElementById('appVersion').textContent = `גרסה ${APP_VERSION} · ${APP_VERSION_DATE}`;
 
