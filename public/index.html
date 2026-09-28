@@ -3115,6 +3115,14 @@ document.querySelectorAll('.bw-day').forEach(btn => btn.addEventListener('click'
   bwDayOffset = Number(btn.dataset.bwday);
   renderBodyWeightPanel();
 }));
+// the field starts filled with the last weight: select it on tap so typing replaces it instead of appending
+// ("6767.8"), and keep the field above the keyboard
+['focus', 'click'].forEach(t => document.getElementById('bwInput').addEventListener(t, (e) => {
+  const el = e.target;
+  setTimeout(() => { try { el.setSelectionRange(0, el.value.length); } catch (err) { el.select(); } }, 0);
+  if (t === 'focus') setTimeout(() => el.closest('.bw-entry').scrollIntoView({ block: 'center', behavior: 'smooth' }), 300);
+}));
+document.getElementById('bwInput').addEventListener('input', () => { document.getElementById('bwError').textContent = ''; });
 document.getElementById('bwInput').addEventListener('keydown', (e) => {
   if (e.key === 'Enter') addBodyWeightEntry(e.target.value);
 });
@@ -4454,7 +4462,7 @@ document.getElementById('coachOverlay').addEventListener('click', (e) => {
 });
 
 // bump on every change that reaches the phone, and add a line to "History of changes" in CLAUDE.md
-const APP_VERSION = '1.8';
+const APP_VERSION = '1.9';
 const APP_VERSION_DATE = '28.9.2026';
 document.getElementById('appVersion').textContent = `גרסה ${APP_VERSION} · ${APP_VERSION_DATE}`;
 
