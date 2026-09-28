@@ -28,6 +28,7 @@ All persistence goes through `window.storage.get/set/list(key, false)`, values a
 - Check at phone width (390px). UI text is Hebrew.
 - Deploy: push to `main`. Cloudflare Workers Builds (connected to this repo) runs `npx wrangler deploy`. Do **not** use "Edit code" → Deploy in the dashboard — it knows only the worker, not the assets.
 - The service worker is network-first, so a new version shows on the next load with signal.
+- **Version:** bump `APP_VERSION` and `APP_VERSION_DATE` in `public/index.html` on every change that is deployed (shown at the bottom of "עוד"), and add a line below. Tell the user the new version number so they can confirm the phone loaded it.
 
 ## History of changes
 - 2026-09-27: delete a set saved by mistake — tap a saved ✓ to undo it, or 🗑 in History → "כל הסטים". Rolls back "last time" and recomputes the PR.
@@ -35,3 +36,4 @@ All persistence goes through `window.storage.get/set/list(key, false)`, values a
 - 2026-09-27: fix lost sets on "סיום" — the phone reloads the app mid-workout and empties the form, so only the last exercise was saved (22.9, 24.9, 27.9). Now: ✓ sets are restored into the form after a reload (`restoreTodaySets`), "סיום" fills empty sets from today's set-log and merges into a session already saved today, and on startup `repairSessionsFromSetLog` fills past sessions from set-log and merges same-date sessions (only adds data).
 - 2026-09-27: "דוח מאמן" (עוד → דוח מאמן — שדרוגים): prioritized upgrades from the user's data — reps outside the target range, stalls and >7% drops (needs 3 sessions per exercise), weekly sets and frequency per major muscle, consistency, deload week, protein and body-weight rate, suspicious data (reps > 40, missing weight). Logic in `buildCoachReport`; read-only, writes nothing.
 - 2026-09-28: keep long-term history — `HISTORY_MAX` 200 workouts per plan day (was 12), `SET_LOG_MAX` 600 (was 300), `BODYWEIGHT_MAX` 1000 (was 60). ~1.2 KB per workout, ~2 MB total.
+- 2026-09-28 · v1.6: progress chart shows the whole history of an exercise (finished workouts + ✓ sets, across plan days) with a from→to summary; long charts thin out dates and value labels. Version number added.

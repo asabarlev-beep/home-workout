@@ -1284,6 +1284,7 @@
       <button class="reset-btn" id="openBwBtn" style="text-align:right;"><i data-ic="scale"></i> מעקב משקל גוף</button>
       <button class="reset-btn" id="openNutBtn" style="text-align:right;"><i data-ic="apple"></i> יומן תזונה</button>
       <button class="reset-btn" id="openBackupBtn" style="text-align:right;"><i data-ic="swap"></i> גיבוי וייבוא נתונים</button>
+      <div id="appVersion" style="color:var(--muted);font-size:12px;text-align:center;margin-top:6px;"></div>
     </div>
   </div>
 </div>
@@ -2772,20 +2773,29 @@ function buildLineChartSvg(labels, values){
   const w = 300, h = 170, padX = 26, padY = 22;
   const knownValues = values.filter(v => v !== null && v !== undefined);
   const maxV = Math.max(...knownValues, 1);
+  const minV = Math.min(...knownValues, maxV);
+  // start the scale a bit below the lowest value, so progress is visible and not a flat line near the top
+  const lo = Math.max(0, minV - Math.max(maxV - minV, maxV * 0.1) * 0.4);
   const n = values.length;
   const stepX = n > 1 ? (w - padX * 2) / (n - 1) : 0;
-  const scaleY = v => h - padY - (v / (maxV || 1)) * (h - padY * 2);
+  const scaleY = v => h - padY - ((v - lo) / ((maxV - lo) || 1)) * (h - padY * 2);
+  // with a long history show about six dates and label only the first, the last and the best point
+  const labelEvery = Math.max(1, Math.ceil(n / 6));
+  const knownIdx = values.map((v, i) => (v === null || v === undefined) ? -1 : i).filter(i => i >= 0);
+  const valueIdx = n <= 10 ? new Set(knownIdx) : new Set([knownIdx[0], knownIdx[knownIdx.length - 1], values.indexOf(maxV)]);
+  const r = n > 30 ? 2.5 : 4;
 
   let points = '';
   let extras = '';
   values.forEach((v, i) => {
     const x = padX + i * stepX;
-    extras += `<text x="${x}" y="${h - 4}" font-size="9" fill="#8b93a0" text-anchor="middle">${labels[i] || ''}</text>`;
+    const showLabel = i === n - 1 || (i % labelEvery === 0 && n - 1 - i >= labelEvery / 2);
+    if (showLabel) extras += `<text x="${x}" y="${h - 4}" font-size="9" fill="#8b93a0" text-anchor="middle">${labels[i] || ''}</text>`;
     if (v === null || v === undefined) return;
     const y = scaleY(v);
     points += `${x},${y} `;
-    extras += `<circle cx="${x}" cy="${y}" r="4" fill="#d7ff3f"></circle>`;
-    extras += `<text x="${x}" y="${y - 10}" font-size="10" fill="#eef1e8" text-anchor="middle">${v}</text>`;
+    extras += `<circle cx="${x}" cy="${y}" r="${r}" fill="#d7ff3f"></circle>`;
+    if (valueIdx.has(i)) extras += `<text x="${x}" y="${y - 10}" font-size="10" fill="#eef1e8" text-anchor="middle">${v}</text>`;
   });
 
   return `<svg viewBox="0 0 ${w} ${h}" style="width:100%;height:auto;">
@@ -2794,9 +2804,9 @@ function buildLineChartSvg(labels, values){
   </svg>`;
 }
 
-async function openChart(exId, exName, dayKey = currentDayKey){
-  const data = dayDataCache[dayKey] || await loadDayData(dayKey);
-  const sessions = (data.history || []).slice(0, 8).reverse();
+async function openChart(exId, exName){
+  // the whole history of this exercise: finished workouts plus sets saved with ✓ (warm-ups left out)
+  const sessions = ((await exerciseTimeline())[exId] || []).filter(s => s.sets.some(x => x.weight != null));
 
   document.getElementById('chartTitle').textContent = 'התקדמות · ' + exName;
   const body = document.getElementById('chartBody');
@@ -2807,29 +2817,15 @@ async function openChart(exId, exName, dayKey = currentDayKey){
     return;
   }
 
-  const labels = [];
-  const values = [];
-  sessions.forEach(s => {
-    const rec = normalizeExRecord(s.exercises ? s.exercises[exId] : null);
-    let maxW = null;
-    if (rec && rec.sets){
-      rec.sets.forEach(set => {
-        if (!set.warmup && set.weight !== null && set.weight !== undefined){
-          if (maxW === null || set.weight > maxW) maxW = set.weight;
-        }
-      });
-    }
-    labels.push(s.date ? s.date.split('.').slice(0, 2).join('.') : '');
-    values.push(maxW !== null ? kgToDisplayUnit(maxW) : null);
-  });
-
-  const hasData = values.some(v => v !== null);
-  if (!hasData){
-    body.innerHTML = '<div class="history-empty">אין עדיין מספיק נתונים להצגת גרף</div>';
-  } else {
-    body.innerHTML = buildLineChartSvg(labels, values) +
-      `<div style="color:var(--muted);font-size:12px;margin-top:8px;">משקל מקסימלי בסט עבודה (${unitLabel()}) לפי אימון</div>`;
-  }
+  const labels = sessions.map(s => s.dateStr.split('.').slice(0, 2).join('.'));
+  const values = sessions.map(s => kgToDisplayUnit(Math.max(...s.sets.filter(x => x.weight != null).map(x => x.weight))));
+  const first = values[0], last = values[values.length - 1];
+  const diff = Math.round((last - first) * 10) / 10;
+  const summary = sessions.length < 2 ? '' :
+    `<div style="font-size:14px;margin-top:10px;">${sessions.length} אימונים מאז ${sessions[0].dateStr}: <b>מ-${first} ל-${last} ${unitLabel()}</b>
+      <span style="color:${diff > 0 ? 'var(--accent)' : 'var(--muted)'}">(<bdi dir="ltr">${diff > 0 ? '+' : ''}${diff}</bdi>)</span></div>`;
+  body.innerHTML = buildLineChartSvg(labels, values) + summary +
+    `<div style="color:var(--muted);font-size:12px;margin-top:8px;">משקל מקסימלי בסט עבודה (${unitLabel()}) בכל אימון, מתחילת המעקב</div>`;
   document.getElementById('chartOverlay').classList.add('open');
 }
 
@@ -4289,6 +4285,11 @@ document.getElementById('coachCloseBtn').addEventListener('click', () => {
 document.getElementById('coachOverlay').addEventListener('click', (e) => {
   if (e.target.id === 'coachOverlay') document.getElementById('coachOverlay').classList.remove('open');
 });
+
+// bump on every change that reaches the phone, and add a line to "History of changes" in CLAUDE.md
+const APP_VERSION = '1.6';
+const APP_VERSION_DATE = '28.9.2026';
+document.getElementById('appVersion').textContent = `גרסה ${APP_VERSION} · ${APP_VERSION_DATE}`;
 
 async function init(){
   const overrides = await loadOverrides();
