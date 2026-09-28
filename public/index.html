@@ -1604,6 +1604,12 @@ function hasSetData(s){
   return !!s && ((s.reps !== null && s.reps !== undefined) || (s.weight !== null && s.weight !== undefined));
 }
 
+// How much history is kept. About 1.2 KB per workout, so this stays around 2 MB in total —
+// well inside the phone's storage and the server's 900 KB per key.
+const HISTORY_MAX = 200;    // finished workouts per plan day (≈ 4 years)
+const SET_LOG_MAX = 600;    // individually saved sets per plan day (≈ 8 months; a backup of the workouts)
+const BODYWEIGHT_MAX = 1000; // weigh-ins (≈ 3 years of daily weighing)
+
 async function loadDayData(dayKey){
   if (dayDataCache[dayKey]) return dayDataCache[dayKey];
   let data = { history: [], last: null, prs: {} };
@@ -2240,7 +2246,7 @@ async function saveWorkout(){
     data.history.shift();
   }
   data.history.unshift(session);
-  data.history = data.history.slice(0, 12);
+  data.history = data.history.slice(0, HISTORY_MAX);
   data.last = exercisesData;
 
   const ok = await saveDayData(currentDayKey, data);
@@ -2369,7 +2375,7 @@ async function saveIndividualSet(btn){
     setIndex: Number(setIdx),
     reps, weight, warmup
   });
-  log = log.slice(0, 300);
+  log = log.slice(0, SET_LOG_MAX);
 
   try {
     const ok = await window.storage.set(key, JSON.stringify(log), false);
@@ -2889,7 +2895,7 @@ async function addBodyWeightEntry(rawVal){
   const existingIdx = log.findIndex(e => e.date === dateStr);
   if (existingIdx !== -1) log[existingIdx].weight = weightKg;
   else log.unshift({ date: dateStr, weight: weightKg });
-  log = log.slice(0, 60);
+  log = log.slice(0, BODYWEIGHT_MAX);
   await saveBodyWeightLog(log);
   showToast('משקל הגוף נשמר ✓');
   renderBodyWeightPanel();
