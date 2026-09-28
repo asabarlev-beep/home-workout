@@ -2051,13 +2051,43 @@ function fillSessionFromLog(session, log, setsCount){
   return changed;
 }
 
+// per exercise: the most recent date with recorded sets — a finished workout (already filled from set-log)
+// or ✓ sets of a workout not finished yet. Exercises with nothing recorded keep their previous hint.
+function buildLastFromData(data, log, setsCount){
+  const out = {};
+  const best = {}; // exId -> { date, rec }
+  const consider = (exId, dateStr, rec) => {
+    const d = parseHeDate(dateStr);
+    if (!d || !rec || !(rec.sets || []).some(hasSetData)) return;
+    if (!best[exId] || d > best[exId].date) best[exId] = { date: d, rec };
+  };
+  (data.history || []).forEach(sess => Object.entries(sess.exercises || {}).forEach(([exId, r]) => consider(exId, sess.date, normalizeExRecord(r))));
+  const finishedDates = new Set((data.history || []).map(h => h.date));
+  const logDates = [...new Set(log.map(e => e.date))].filter(d => !finishedDates.has(d));
+  logDates.forEach(dateStr => {
+    Object.entries(setLogByDate(log, dateStr)).forEach(([exId, sets]) => {
+      const rec = { sets: [], note: '' };
+      const need = Math.max(setsCount || 0, ...Object.keys(sets).map(Number));
+      for (let i = 1; i <= need; i++){
+        const e = sets[i];
+        rec.sets.push(e ? { reps: e.reps ?? null, weight: e.weight ?? null, warmup: !!e.warmup } : { reps: null, weight: null, warmup: false });
+      }
+      consider(exId, dateStr, rec);
+    });
+  });
+  Object.entries(data.last || {}).forEach(([exId, r]) => { if (!best[exId]) out[exId] = r; });
+  Object.entries(best).forEach(([exId, b]) => { out[exId] = JSON.parse(JSON.stringify(b.rec)); });
+  return out;
+}
+
 // Repairs finished workouts that lost sets because the form was emptied before "סיום":
 // fills empty sets from set-log and merges two sessions saved on the same date. Only adds data.
 async function repairSessionsFromSetLog(){
   for (const day of DAYS){
     const data = await loadDayData(day.key);
-    if (!data.history || !data.history.length) continue;
     const log = await loadSetLog(day.key);
+    if ((!data.history || !data.history.length) && !log.length) continue;
+    data.history = data.history || [];
     let changed = false;
 
     // merge sessions of the same date into the newest one
@@ -2078,14 +2108,11 @@ async function repairSessionsFromSetLog(){
     data.history = merged;
 
     data.history.forEach(s => { if (fillSessionFromLog(s, log, day.setsCount)) changed = true; });
-    if (!changed) continue;
 
-    // "last time" hints: take the repaired newest session for exercises whose hint lost its data
-    data.last = data.last || {};
-    Object.entries(data.history[0].exercises).forEach(([exId, r]) => {
-      const last = normalizeExRecord(data.last[exId]);
-      if (!last || !(last.sets || []).some(hasSetData)) data.last[exId] = r;
-    });
+    // "last time" is rebuilt from what is really recorded, so a deleted test set cannot linger there
+    const rebuilt = buildLastFromData(data, log, day.setsCount);
+    if (JSON.stringify(rebuilt) !== JSON.stringify(data.last || {})){ data.last = rebuilt; changed = true; }
+    if (!changed) continue;
     await saveDayData(day.key, data);
   }
 }
@@ -2418,12 +2445,47 @@ function nextWeightSuggestion(ex, rec){
   return { kind: atTop.some(s => s.reps < range.lo) ? 'low' : 'keep', weight: top, lo: range.lo };
 }
 
-async function saveIndividualSet(btn){
+// rest time from the exercise target, e.g. "מנוחה 2 עד 3 דק׳" -> 150 s, "מנוחה 60 עד 90 שנ׳" -> 75 s
+function restSecondsFor(exId){
+  const ex = (DAYS.find(d => d.key === currentDayKey)?.exercises || []).find(e => e.id === exId);
+  const m = String(ex && ex.target || '').match(/מנוחה\s*(\d+(?:\.\d+)?)\s*(?:עד\s*(\d+(?:\.\d+)?))?\s*(דק|שנ)/);
+  if (!m) return null;
+  const lo = Number(m[1]), hi = m[2] ? Number(m[2]) : lo;
+  const secs = (lo + hi) / 2 * (m[3] === 'דק' ? 60 : 1);
+  return Math.max(15, Math.round(secs / 15) * 15);
+}
+
+// a set far from last time is probably a typo (86 reps instead of 8); returns the reason or null
+async function suspiciousSet(exId, setIdx, reps, weightKg, warmup){
+  if (reps != null && reps > 40) return `${reps} חזרות זה הרבה מאוד לסט.`;
+  if (weightKg != null && weightKg > 250) return `${formatWeight(weightKg)} זה משקל חריג מאוד.`;
+  const data = await loadDayData(currentDayKey);
+  const rec = normalizeExRecord(data.last ? data.last[exId] : null);
+  const sets = ((rec && rec.sets) || []).filter(x => x && !x.warmup && hasSetData(x));
+  const ref = (rec && rec.sets && hasSetData(rec.sets[setIdx - 1]) && !rec.sets[setIdx - 1].warmup) ? rec.sets[setIdx - 1] : sets[0];
+  if (!ref) return null;
+  if (reps != null && ref.reps && reps >= ref.reps * 2 + 4) return `${reps} חזרות — בפעם הקודמת ${ref.reps}.`;
+  if (!warmup && weightKg != null && ref.weight > 0){
+    if (weightKg >= ref.weight * 1.6 + 2.5) return `${formatWeight(weightKg)} — בפעם הקודמת ${formatWeight(ref.weight)}.`;
+    if (weightKg <= ref.weight * 0.4) return `${formatWeight(weightKg)} — בפעם הקודמת ${formatWeight(ref.weight)}.`;
+  }
+  return null;
+}
+
+async function saveIndividualSet(btn, confirmed = false){
   const exId = btn.getAttribute('data-ex');
   const setIdx = btn.getAttribute('data-set');
   const exName = btn.getAttribute('data-exname');
   const repsInput = document.querySelector(`input[data-ex="${exId}"][data-set="${setIdx}"][data-field="reps"]`);
   const weightInput = document.querySelector(`input[data-ex="${exId}"][data-set="${setIdx}"][data-field="weight"]`);
+
+  // ✓ on an empty field takes last time's value (or the suggested next weight) shown in grey
+  let filled = false;
+  [repsInput, weightInput].forEach(inp => {
+    if (!inp.value && inp.placeholder !== '' && !isNaN(Number(inp.placeholder))){ inp.value = inp.placeholder; filled = true; }
+  });
+  if (filled){ updateLiveVolumeDisplay(); autoStartWorkoutClock(); }
+
   const reps = repsInput.value ? Number(repsInput.value) : null;
   const weightDisplay = weightInput.value ? Number(weightInput.value) : null;
   const weight = weightDisplay !== null ? displayUnitToKg(weightDisplay) : null;
@@ -2432,6 +2494,14 @@ async function saveIndividualSet(btn){
   if (reps === null && weight === null){
     showToast('הכנס חזרות או משקל לפני שמירה');
     return;
+  }
+
+  if (!confirmed){
+    const why = await suspiciousSet(exId, Number(setIdx), reps, weight, warmup);
+    if (why){
+      showConfirm('לשמור את הסט?', why + ' אולי טעות הקלדה? אפשר לבטל ולתקן.', () => saveIndividualSet(btn, true), 'שמור בכל זאת');
+      return;
+    }
   }
 
   const key = 'set-log:' + currentDayKey;
@@ -2464,8 +2534,8 @@ async function saveIndividualSet(btn){
       if (!warmup) isPR = await updatePRIfNeeded(currentDayKey, exId, weight, reps, dateStr);
       const rec = await persistSetToLast(exId, setIdx, reps, weight, warmup);
       updateLastNoteDisplay(exId, rec);
-      showToast(isPR ? '🏆 שיא אישי חדש!' : 'הסט נשמר ✓');
-      if (!timerRunning) startTimer(selectedPreset);
+      showToast(isPR ? '🏆 שיא אישי חדש!' : filled ? 'נשמר כמו בפעם הקודמת ✓' : 'הסט נשמר ✓');
+      if (!timerRunning) startTimer(restSecondsFor(exId) || selectedPreset);
     } else {
       showToast('שמירת הסט נכשלה');
     }
@@ -3955,6 +4025,18 @@ async function removeSetLogEntry(dayKey, log, idx){
   const exId = entry.exerciseId;
   const slot = entry.setIndex - 1;
 
+  // the same set inside a finished workout of that date is removed too, so it does not come back
+  // in records, charts or the coach report
+  (data.history || []).forEach(session => {
+    if (session.date !== entry.date) return;
+    const rec = normalizeExRecord(session.exercises ? session.exercises[exId] : null);
+    const s = rec && rec.sets ? rec.sets[slot] : null;
+    if (s && s.reps === entry.reps && s.weight === entry.weight){
+      rec.sets[slot] = { reps: null, weight: null, warmup: false };
+      session.exercises[exId] = rec;
+    }
+  });
+
   // "last time" hint: fall back to the newest remaining save of this slot, else the last full session
   const lastRec = normalizeExRecord(data.last ? data.last[exId] : null);
   const lastSet = lastRec && lastRec.sets ? lastRec.sets[slot] : null;
@@ -4495,7 +4577,7 @@ document.getElementById('coachOverlay').addEventListener('click', (e) => {
 });
 
 // bump on every change that reaches the phone, and add a line to "History of changes" in CLAUDE.md
-const APP_VERSION = '1.11';
+const APP_VERSION = '1.12';
 const APP_VERSION_DATE = '28.9.2026';
 document.getElementById('appVersion').textContent = `גרסה ${APP_VERSION} · ${APP_VERSION_DATE}`;
 
