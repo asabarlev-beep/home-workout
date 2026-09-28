@@ -1577,6 +1577,24 @@ async function pickDefaultDay(){
   } catch (e) {
     // nothing trained yet
   }
+  // Decided from the data itself, so a test set that was deleted, or a workout already finished,
+  // does not keep the app on the wrong workout:
+  // the plan day with the latest activity; stay on it only while today's workout there is not finished yet.
+  const today = todayStr();
+  let best = null; // { idx, date, inProgress }
+  for (let idx = 0; idx < DAYS.length; idx++){
+    const data = await loadDayData(DAYS[idx].key);
+    const finished = data.history && data.history[0] ? parseHeDate(data.history[0].date) : null;
+    const log = await loadSetLog(DAYS[idx].key);
+    const saved = log.length ? parseHeDate(log[0].date) : null;
+    const latest = [finished, saved].filter(Boolean).sort((a, b) => b - a)[0];
+    if (!latest) continue;
+    const inProgress = log.some(e => e.date === today) && !(data.history && data.history[0] && data.history[0].date === today);
+    if (!best || latest > best.date || (+latest === +best.date && inProgress && !best.inProgress)) best = { idx, date: latest, inProgress };
+  }
+  if (best) return best.inProgress ? DAYS[best.idx].key : DAYS[(best.idx + 1) % DAYS.length].key;
+
+  // no workouts recorded yet: fall back to the stored rotation
   const i = last ? DAYS.findIndex(d => d.key === last.day) : -1;
   if (i < 0) return DAYS[0].key;
   return last.date === isoDate(new Date()) ? last.day : DAYS[(i + 1) % DAYS.length].key;
@@ -4287,7 +4305,7 @@ document.getElementById('coachOverlay').addEventListener('click', (e) => {
 });
 
 // bump on every change that reaches the phone, and add a line to "History of changes" in CLAUDE.md
-const APP_VERSION = '1.6';
+const APP_VERSION = '1.7';
 const APP_VERSION_DATE = '28.9.2026';
 document.getElementById('appVersion').textContent = `גרסה ${APP_VERSION} · ${APP_VERSION_DATE}`;
 
