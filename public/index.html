@@ -1120,6 +1120,26 @@
   .bw-legend .line{ width:14px; height:2px; background:#d7ff3f; display:inline-block; margin-inline-start:6px; }
   .bw-list-title{ color:var(--muted); font-size:13px; font-weight:800; margin:18px 0 6px; }
   .bw-diff{ font-size:12px; margin-top:2px; }
+  .cb-title{ font-weight:800; font-size:15px; }
+  .cb-row{ display:flex; justify-content:space-between; align-items:center; gap:10px; background:var(--bg); border-radius:12px; padding:10px 12px; margin-top:6px; font-size:14px; }
+  .cb-row .meta{ color:var(--muted); font-size:12px; }
+  .cb-row button{ flex:none; border:1px solid var(--line); background:var(--surface2); color:var(--text); border-radius:10px; padding:7px 12px; font:inherit; font-size:13px; font-weight:700; }
+  .last-note .chip.warm{ cursor:pointer; border-color:#5a3a1a; color:#ffb347; }
+  .warm-plan{ flex-basis:100%; background:var(--bg); border-radius:10px; padding:8px 10px; font-size:13px; line-height:1.6; }
+  .warm-plan[hidden]{ display:none; }
+  .warm-plan b{ color:var(--text); }
+  .warm-plan span{ color:var(--muted); font-size:12px; }
+  .sum-hero{ text-align:center; margin-bottom:14px; }
+  .sum-hero .t{ font-size:22px; font-weight:800; }
+  .sum-hero .d{ color:var(--muted); font-size:13px; margin-top:4px; }
+  .sum-stats{ display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
+  .sum-stat{ background:var(--bg); border-radius:14px; padding:10px; text-align:center; }
+  .sum-stat .v{ font-size:20px; font-weight:800; }
+  .sum-stat .k{ color:var(--muted); font-size:12px; margin-top:2px; }
+  .sum-cmp{ text-align:center; font-size:13px; margin:10px 0 4px; }
+  .sum-sec{ font-weight:800; font-size:14px; margin:16px 0 6px; }
+  .sum-row{ display:flex; justify-content:space-between; gap:10px; background:var(--bg); border-radius:12px; padding:9px 12px; margin-bottom:6px; font-size:14px; }
+  .sum-row b{ color:var(--accent); white-space:nowrap; }
   .coach-lead{ font-size:15px; line-height:1.5; margin:0 0 14px; }
   .coach-item{ background:var(--bg); border-radius:14px; padding:12px 14px; margin-bottom:10px; border-inline-start:4px solid var(--line); }
   .coach-item.high{ border-inline-start-color:var(--danger); }
@@ -1229,6 +1249,16 @@
       <button class="save-btn" id="saveBtn">שמור אימון היום</button>
       <button class="reset-btn" id="resetBtn">נקה טופס</button>
     </div>
+  </div>
+</div>
+
+<div class="history-overlay" id="summaryOverlay">
+  <div class="history-panel">
+    <div class="history-head">
+      <h2>סיכום אימון</h2>
+      <button class="history-close" id="summaryCloseBtn" aria-label="סגור"><i data-ic="x"></i></button>
+    </div>
+    <div id="summaryBody" style="padding:14px 18px 28px"></div>
   </div>
 </div>
 
@@ -1445,8 +1475,13 @@
       <button class="history-close" id="backupCloseBtn" aria-label="סגור"><i data-ic="x"></i></button>
     </div>
     <div style="padding:16px 18px 28px;display:flex;flex-direction:column;gap:12px;">
-      <p style="color:var(--muted);font-size:13px;margin:0;">הנתונים נשמרים רק בדפדפן הזה. מומלץ לגבות מדי פעם, ולייבא בחזרה אם תחליף מכשיר או תנקה קאש.</p>
-      <button class="save-btn" id="exportBtn">⬇️ הורד קובץ גיבוי</button>
+      <div class="cb-title">גיבוי אוטומטי בענן</div>
+      <p style="color:var(--muted);font-size:13px;margin:0;">פעם בשבוע האפליקציה שומרת עותק מלא בענן, בנפרד מהסנכרון. נשמרים 12 הגיבויים האחרונים, ואפשר לשחזר כל אחד מהם.</p>
+      <button class="save-btn" id="cloudBackupBtn">☁️ גבה עכשיו לענן</button>
+      <div id="cloudBackups"></div>
+      <div class="cb-title" style="margin-top:8px">קובץ גיבוי</div>
+      <p style="color:var(--muted);font-size:13px;margin:0;">עותק בטלפון שלך — שווה להוריד לפני שינויים גדולים.</p>
+      <button class="reset-btn" id="exportBtn">⬇️ הורד קובץ גיבוי</button>
       <label class="video-btn" style="justify-content:center;">
         ⬆️ <span>ייבוא קובץ גיבוי</span>
         <input type="file" accept="application/json" style="display:none" id="importFileInput">
@@ -2357,8 +2392,8 @@ async function saveWorkout(){
   const ok = await saveDayData(currentDayKey, data);
   if (ok){
     markTrained(currentDayKey);
-    if (newPRs.length) showToast('🏆 שיא אישי חדש: ' + newPRs.join(', '));
-    else showToast('האימון נשמר ✓');
+    const secs = workoutAccumulated + ((workoutRunning && workoutStartTime) ? Math.floor((Date.now() - workoutStartTime) / 1000) : 0);
+    showWorkoutSummary(day, session, data.history[1] || null, newPRs, secs);
     renderExercises();
     resetWorkoutClock();
   } else {
@@ -2367,6 +2402,61 @@ async function saveWorkout(){
 }
 
 document.getElementById('saveBtn').addEventListener('click', saveWorkout);
+
+/* ---------------- after "סיום": what was done and what to do next time ---------------- */
+function showWorkoutSummary(day, session, previous, newPRs, secs){
+  document.getElementById('finishOverlay').classList.remove('open');
+  const workSets = (sess) => Object.values(sess.exercises || {}).reduce((n, r) => n + ((normalizeExRecord(r) || {}).sets || []).filter(x => x && !x.warmup && hasSetData(x)).length, 0);
+  const vol = computeSessionVolume(session, day);
+  const sets = workSets(session);
+  const mins = Math.round(secs / 60);
+  let cmp = '';
+  if (previous){
+    const pv = computeSessionVolume(previous, day);
+    if (pv > 0){
+      const pct = Math.round((vol - pv) / pv * 100);
+      cmp = `<div class="sum-cmp" style="color:${pct >= 0 ? 'var(--accent)' : '#ffb347'}">נפח <bdi dir="ltr">${pct > 0 ? '+' : ''}${pct}%</bdi> לעומת הפעם הקודמת (${previous.date})</div>`;
+    }
+  }
+  const improved = [], nextUp = [];
+  activeExercises(day).forEach(ex => {
+    const rec = normalizeExRecord(session.exercises[ex.id]);
+    const cur = (rec && rec.sets || []).filter(x => x && !x.warmup && x.weight != null);
+    if (!cur.length) return;
+    const prevRec = previous ? normalizeExRecord(previous.exercises && previous.exercises[ex.id]) : null;
+    const prev = (prevRec && prevRec.sets || []).filter(x => x && !x.warmup && x.weight != null);
+    if (prev.length){
+      const a = bestE1RM(prev), b = bestE1RM(cur);
+      if (b > a * 1.005){
+        const top = (arr) => arr.reduce((m, x) => est1RM(x.weight, x.reps) > est1RM(m.weight, m.reps) ? x : m);
+        const tp = top(prev), tc = top(cur);
+        improved.push(`<div class="sum-row"><span>${ex.name}</span><b><bdi dir="ltr">${tp.reps}×${kgToDisplayUnit(tp.weight)} → ${tc.reps}×${kgToDisplayUnit(tc.weight)}</bdi></b></div>`);
+      }
+    }
+    const next = nextWeightSuggestion(ex, rec);
+    if (next && next.kind === 'up') nextUp.push(`<div class="sum-row"><span>${ex.name}</span><b>${formatWeight(next.weight)}</b></div>`);
+  });
+  document.getElementById('summaryBody').innerHTML = `
+    <div class="sum-hero"><div class="t">${newPRs.length ? '🏆 אימון עם שיא!' : 'כל הכבוד 💪'}</div><div class="d">${day.label} · ${session.date}</div></div>
+    <div class="sum-stats">
+      <div class="sum-stat"><div class="v">${mins || '—'}</div><div class="k">דקות</div></div>
+      <div class="sum-stat"><div class="v">${sets}</div><div class="k">סטים</div></div>
+      <div class="sum-stat"><div class="v">${vol.toLocaleString('he-IL')}</div><div class="k">נפח ${unitLabel()}</div></div>
+    </div>
+    ${cmp}
+    ${newPRs.length ? `<div class="sum-sec">שיאים חדשים</div>${newPRs.map(n => `<div class="sum-row"><span>🏆 ${n}</span></div>`).join('')}` : ''}
+    ${improved.length ? `<div class="sum-sec">השתפרת לעומת הפעם הקודמת</div>${improved.join('')}` : ''}
+    <div class="sum-sec">בפעם הבאה</div>
+    ${nextUp.length ? `<div class="why" style="color:var(--muted);font-size:13px;margin-bottom:6px">הגעת לראש טווח החזרות — להעלות משקל:</div>${nextUp.join('')}`
+      : '<div style="color:var(--muted);font-size:13px">אותם משקלים, ולנסות להוסיף חזרה אחת בכל סט עד ראש הטווח.</div>'}
+    <button class="save-btn" id="summaryDoneBtn" style="width:100%;margin-top:16px">סגור</button>`;
+  document.getElementById('summaryOverlay').classList.add('open');
+  document.getElementById('summaryDoneBtn').addEventListener('click', () => document.getElementById('summaryOverlay').classList.remove('open'));
+}
+document.getElementById('summaryCloseBtn').addEventListener('click', () => document.getElementById('summaryOverlay').classList.remove('open'));
+document.getElementById('summaryOverlay').addEventListener('click', (e) => {
+  if (e.target.id === 'summaryOverlay') document.getElementById('summaryOverlay').classList.remove('open');
+});
 
 /* ---------------- per-set save ---------------- */
 
@@ -2418,8 +2508,41 @@ function lastNoteChips(rec, pr, ex){
   }
   html += `<span class="chip${hasLast ? '' : ' empty'}">${last}</span>`;
   if (pr) html += `<span class="chip pr">${ic('trophy')} שיא ${pr.reps ?? '-'}×${formatWeight(pr.weight)}</span>`;
+  const warm = ex ? warmupPlan(ex, rec) : null;
+  if (warm){
+    html += `<span class="chip warm" role="button" data-warm>🔥 חימום</span>`;
+    html += `<div class="warm-plan" hidden>חימום לפני ${formatWeight(warm.work)}: ${warm.steps.map(st => `<b>${st.reps}×${formatWeight(st.weight)}</b>`).join(' · ')}<br><span>מנוחה קצרה (כדקה), בלי להתאמץ — רק להכין את המפרקים.</span></div>`;
+  }
   return html;
 }
+
+/* ---------------- warm-up ramp for the heavy lifts ----------------
+   Exercises whose rep range starts at 8 or lower with a working weight of 10 kg+: 40% ×10, 60% ×6, 80% ×3
+   of today's working weight (the suggested next weight, else last time's top set). */
+function warmupPlan(ex, rec){
+  const range = repRange(ex.target);
+  if (!range || range.lo > 8) return null;
+  const sets = ((rec && rec.sets) || []).filter(x => x && !x.warmup && x.weight != null && x.weight > 0);
+  if (!sets.length) return null;
+  const next = nextWeightSuggestion(ex, rec);
+  const work = next ? next.weight : Math.max(...sets.map(x => x.weight));
+  if (work < 10) return null;
+  const db = isDumbbellExercise(ex);
+  const round = (w) => db ? ([...DUMBBELL_KG].reverse().find(k => k <= w) ?? null) : Math.floor(w / 2.5) * 2.5;
+  const steps = [];
+  [[0.4, 10], [0.6, 6], [0.8, 3]].forEach(([pct, reps]) => {
+    const w = round(work * pct);
+    if (w && w >= 2.5 && w < work && !steps.some(st => st.weight === w)) steps.push({ weight: w, reps });
+  });
+  return steps.length ? { work, steps } : null;
+}
+
+document.addEventListener('click', (e) => {
+  const chip = e.target.closest('[data-warm]');
+  if (!chip) return;
+  const plan = chip.parentElement.querySelector('.warm-plan');
+  if (plan) plan.hidden = !plan.hidden;
+});
 
 /* ---------------- next-weight suggestion (double progression) ----------------
    Every working set at the top weight reached the top of the target rep range -> go up one step.
@@ -3005,6 +3128,7 @@ document.getElementById('openNutBtn').addEventListener('click', () => {
 document.getElementById('openBackupBtn').addEventListener('click', () => {
   document.getElementById('moreOverlay').classList.remove('open');
   document.getElementById('backupOverlay').classList.add('open');
+  renderCloudBackups();
 });
 
 /* ---------------- body weight tracking ---------------- */
@@ -3693,19 +3817,124 @@ document.getElementById('nutritionOverlay').addEventListener('click', (e) => {
 
 /* ---------------- backup: export / import ---------------- */
 
+async function collectAllData(){
+  const listRes = await window.storage.list('', false);
+  const keys = (listRes && listRes.keys) ? listRes.keys : [];
+  const bundle = {};
+  for (const k of keys){
+    try {
+      const res = await window.storage.get(k, false);
+      if (res && res.value !== undefined) bundle[k] = res.value;
+    } catch (e) {
+      // skip unreadable key
+    }
+  }
+  return bundle;
+}
+
+async function applyBackupBundle(bundle){
+  for (const k of Object.keys(bundle)) await window.storage.set(k, bundle[k], false);
+  dayDataCache = {};
+  const overrides = await loadOverrides();
+  DAYS = buildDays(overrides);
+  renderTabs();
+  renderExercises();
+}
+
+/* ---------------- cloud backups (weekly, automatic) ---------------- */
+
+async function gzipB64(str){
+  const stream = new Blob([str]).stream().pipeThrough(new CompressionStream('gzip'));
+  const bytes = new Uint8Array(await new Response(stream).arrayBuffer());
+  let bin = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  return btoa(bin);
+}
+async function gunzipB64(b64){
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
+  return await new Response(stream).text();
+}
+
+// returns true on success; quiet = the weekly automatic run (no error toasts)
+async function createCloudBackup(quiet){
+  try {
+    const bundle = await collectAllData();
+    const keys = Object.keys(bundle).filter(k => k !== 'auto-backup-last').length;
+    if (!keys) return false;
+    const json = JSON.stringify({ exportedAt: new Date().toISOString(), data: bundle });
+    const res = await fetch('/api/backups', {
+      method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ data: await gzipB64(json), size: json.length, keys }),
+    });
+    if (!res.ok) throw new Error('status ' + res.status);
+    await window.storage.set('auto-backup-last', isoDate(new Date()), false);
+    return true;
+  } catch (e) {
+    if (!quiet) showToast('הגיבוי לענן נכשל — בדוק חיבור לאינטרנט');
+    return false;
+  }
+}
+
+async function maybeWeeklyBackup(){
+  let last = null;
+  try { const r = await window.storage.get('auto-backup-last', false); last = r && r.value; } catch (e) {}
+  const days = last ? Math.round((new Date(isoDate(new Date())) - new Date(last)) / 86400000) : Infinity;
+  if (days >= 7 && await createCloudBackup(true)) showToast('גיבוי שבועי נשמר בענן ☁️');
+}
+
+async function renderCloudBackups(){
+  const wrap = document.getElementById('cloudBackups');
+  wrap.innerHTML = '<div style="color:var(--muted);font-size:13px">טוען גיבויים…</div>';
+  try {
+    const res = await fetch('/api/backups', { credentials: 'same-origin' });
+    if (!res.ok) throw new Error();
+    const { items } = await res.json();
+    if (!items.length){ wrap.innerHTML = '<div style="color:var(--muted);font-size:13px">עדיין אין גיבויים בענן.</div>'; return; }
+    wrap.innerHTML = items.map(it => {
+      const d = new Date(it.created);
+      const when = d.toLocaleDateString('he-IL') + ' ' + d.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' });
+      return `<div class="cb-row"><div><div>${when}</div><div class="meta">${Math.max(1, Math.round(it.size / 1024))} KB · ${it.keys} רשומות</div></div><button type="button" data-restore="${it.id}" data-when="${when}">שחזר</button></div>`;
+    }).join('');
+    wrap.querySelectorAll('[data-restore]').forEach(btn => btn.addEventListener('click', () => {
+      showConfirm('לשחזר את הגיבוי?', `הנתונים באפליקציה יחזרו למצב של ${btn.dataset.when}. לפני השחזור נשמר גיבוי של המצב הנוכחי, כך שאפשר לחזור אחורה.`, () => restoreCloudBackup(btn.dataset.restore), 'שחזר');
+    }));
+  } catch (e) {
+    wrap.innerHTML = '<div style="color:var(--muted);font-size:13px">אי אפשר לטעון גיבויים כרגע (אין חיבור או לא מחובר).</div>';
+  }
+}
+
+async function restoreCloudBackup(id){
+  try {
+    showToast('משחזר…');
+    if (!await createCloudBackup(false)) return; // safety copy of the current state first
+    const res = await fetch('/api/backups/' + encodeURIComponent(id), { credentials: 'same-origin' });
+    if (!res.ok) throw new Error();
+    const payload = JSON.parse(await gunzipB64((await res.json()).data));
+    const bundle = payload && payload.data ? payload.data : {};
+    delete bundle['auto-backup-last'];
+    if (!Object.keys(bundle).length) throw new Error();
+    await applyBackupBundle(bundle);
+    showToast('הגיבוי שוחזר ✓');
+    renderCloudBackups();
+  } catch (e) {
+    showToast('השחזור נכשל, נסה שוב');
+  }
+}
+
+document.getElementById('cloudBackupBtn').addEventListener('click', async () => {
+  const btn = document.getElementById('cloudBackupBtn');
+  btn.disabled = true;
+  const ok = await createCloudBackup(false);
+  btn.disabled = false;
+  if (ok){ showToast('הגיבוי נשמר בענן ☁️'); renderCloudBackups(); }
+});
+
 async function exportAllData(){
   try {
-    const listRes = await window.storage.list('', false);
-    const keys = (listRes && listRes.keys) ? listRes.keys : [];
-    const bundle = {};
-    for (const k of keys){
-      try {
-        const res = await window.storage.get(k, false);
-        if (res && res.value !== undefined) bundle[k] = res.value;
-      } catch (e) {
-        // skip unreadable key
-      }
-    }
+    const bundle = await collectAllData();
     const payload = { exportedAt: new Date().toISOString(), data: bundle };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -3733,15 +3962,8 @@ async function importAllData(file){
       showToast('הקובץ לא מכיל נתונים תקינים');
       return;
     }
-    for (const k of keys){
-      await window.storage.set(k, bundle[k], false);
-    }
-    dayDataCache = {};
-    const overrides = await loadOverrides();
-    DAYS = buildDays(overrides);
+    await applyBackupBundle(bundle);
     showToast('הנתונים יובאו בהצלחה ✓');
-    renderTabs();
-    renderExercises();
   } catch (e) {
     showToast('ייבוא הקובץ נכשל — ודא שזה קובץ גיבוי תקין');
   }
@@ -4577,7 +4799,7 @@ document.getElementById('coachOverlay').addEventListener('click', (e) => {
 });
 
 // bump on every change that reaches the phone, and add a line to "History of changes" in CLAUDE.md
-const APP_VERSION = '1.12';
+const APP_VERSION = '1.13';
 const APP_VERSION_DATE = '28.9.2026';
 document.getElementById('appVersion').textContent = `גרסה ${APP_VERSION} · ${APP_VERSION_DATE}`;
 
@@ -4589,6 +4811,7 @@ async function init(){
   renderDeloadBanner();
   selectDay(await pickDefaultDay());
   resetWorkoutClock();
+  setTimeout(() => { maybeWeeklyBackup(); }, 4000);
 }
 init();
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});

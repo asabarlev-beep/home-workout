@@ -60,6 +60,42 @@ async function kvPut(env, req, key) {
   ).bind(key, body.value, Math.trunc(body.updated)).run();
   return json({ ok: true });
 }
+// Cloud backups: full snapshots (gzip + base64, made by the app) in their own table, never touched by
+// the key/value sync, so a bad value that syncs cannot overwrite them. The newest BACKUP_KEEP are kept.
+const BACKUP_KEEP = 12;
+const MAX_BACKUP = 1.9e6; // D1 rows are limited to 2 MB
+async function ensureBackups(env) {
+  await env.DB.prepare(
+    "CREATE TABLE IF NOT EXISTS backups (id INTEGER PRIMARY KEY AUTOINCREMENT, created INTEGER NOT NULL, size INTEGER NOT NULL, keys INTEGER NOT NULL, data TEXT NOT NULL)"
+  ).run();
+}
+async function backupCreate(env, req) {
+  const text = await req.text();
+  if (text.length > MAX_BACKUP) return json({ error: "too_large" }, 413);
+  let body;
+  try {
+    body = JSON.parse(text);
+  } catch {
+    return json({ error: "bad_request" }, 400);
+  }
+  if (!body || typeof body.data !== "string" || !Number.isFinite(body.size) || !Number.isFinite(body.keys)) return json({ error: "bad_request" }, 400);
+  await ensureBackups(env);
+  const row = await env.DB.prepare("INSERT INTO backups (created, size, keys, data) VALUES (?, ?, ?, ?) RETURNING id")
+    .bind(Date.now(), Math.trunc(body.size), Math.trunc(body.keys), body.data).first();
+  await env.DB.prepare("DELETE FROM backups WHERE id NOT IN (SELECT id FROM backups ORDER BY created DESC, id DESC LIMIT ?)").bind(BACKUP_KEEP).run();
+  return json({ ok: true, id: row.id });
+}
+async function backupList(env) {
+  await ensureBackups(env);
+  const { results } = await env.DB.prepare("SELECT id, created, size, keys FROM backups ORDER BY created DESC, id DESC").all();
+  return json({ items: results });
+}
+async function backupGet(env, id) {
+  await ensureBackups(env);
+  const row = await env.DB.prepare("SELECT id, created, data FROM backups WHERE id = ?").bind(id).first();
+  return row ? json(row) : json({ error: "not_found" }, 404);
+}
+
 export default {
   async fetch(req, env) {
     const path = new URL(req.url).pathname;
@@ -68,6 +104,10 @@ export default {
       if (path === "/api/login" && req.method === "POST") return await login(env, req);
       if (!await authed(env, req)) return json({ error: "unauthorized" }, 401);
       if (path === "/api/kv" && req.method === "GET") return await kvList(env);
+      if (path === "/api/backups" && req.method === "GET") return await backupList(env);
+      if (path === "/api/backups" && req.method === "POST") return await backupCreate(env, req);
+      const b = path.match(/^\/api\/backups\/(\d+)$/);
+      if (b && req.method === "GET") return await backupGet(env, Number(b[1]));
       const m = path.match(/^\/api\/kv\/([^/]+)$/);
       if (m && req.method === "PUT") {
         const key = decodeURIComponent(m[1]);
