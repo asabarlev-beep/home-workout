@@ -188,14 +188,21 @@
     display:flex;
     align-items:center;
     justify-content:space-between;
+    flex-wrap:wrap; /* on narrow phones the edit buttons drop to a second line instead of sliding off the card */
     gap:8px;
     margin-bottom:8px;
   }
+  .card-head > div:first-child{ min-width:0; flex:1 1 auto; }
+  .card-head .ex-name{ overflow-wrap:anywhere; }
   .card-head-actions{
     display:flex;
     align-items:center;
+    flex-wrap:wrap;
+    justify-content:flex-end;
     gap:6px;
     flex-shrink:0;
+    max-width:100%;
+    margin-inline-start:auto;
   }
   .ex-name{
     font-size:16px;
@@ -4799,8 +4806,8 @@ document.getElementById('coachOverlay').addEventListener('click', (e) => {
 });
 
 // bump on every change that reaches the phone, and add a line to "History of changes" in CLAUDE.md
-const APP_VERSION = '1.13';
-const APP_VERSION_DATE = '28.9.2026';
+const APP_VERSION = '1.14';
+const APP_VERSION_DATE = '29.9.2026';
 document.getElementById('appVersion').textContent = `גרסה ${APP_VERSION} · ${APP_VERSION_DATE}`;
 
 async function init(){
