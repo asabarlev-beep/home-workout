@@ -1021,6 +1021,7 @@
   .card{ background:#14181f; border:1px solid rgba(255,255,255,.05); box-shadow:0 8px 22px rgba(0,0,0,.25); }
   .card-head .icon-btn, .ex-stopwatch-row .icon-btn{ background:transparent; color:#aab2bf; }
   .card-head .icon-btn.danger{ color:var(--danger); }
+  .card-head .icon-btn.bar-btn{ width:auto; padding:0 9px; font-size:12.5px; font-weight:700; color:#9fc3ff; white-space:nowrap; }
   .last-note .chip{ background:none; border:1px solid #2a313d; color:#aab2bf; }
   .last-note .chip.pr{ background:none; border-color:#4a3f1a; color:#e8c55a; }
   .last-note .chip.empty{ border-style:dashed; }
@@ -1132,6 +1133,7 @@
   .cb-row{ display:flex; justify-content:space-between; align-items:center; gap:10px; background:var(--bg); border-radius:12px; padding:10px 12px; margin-top:6px; font-size:14px; }
   .cb-row .meta{ color:var(--muted); font-size:12px; }
   .cb-row button{ flex:none; border:1px solid var(--line); background:var(--surface2); color:var(--text); border-radius:10px; padding:7px 12px; font:inherit; font-size:13px; font-weight:700; }
+  .last-note .chip.bar{ border-color:#3a4a5e; color:#9fc3ff; }
   .last-note .chip.warm{ cursor:pointer; border-color:#5a3a1a; color:#ffb347; }
   .warm-plan{ flex-basis:100%; background:var(--bg); border-radius:10px; padding:8px 10px; font-size:13px; line-height:1.6; }
   .warm-plan[hidden]{ display:none; }
@@ -1652,6 +1654,36 @@ function buildDays(overrides){
 
 const activeExercises = (day) => day.exercises.filter(e => !e.hidden);
 
+/* ---------------- barbell weight per exercise ----------------
+   ex.bar = weight of the empty bar in kg (0 = no bar). Weights are always logged as the total: bar + plates.
+   Defaults the user asked for (30.9.2026): barbell row 15 kg, deadlift and squat 20 kg. Set once, only where
+   ex.bar is still undefined, so a later change in edit mode is kept. */
+const BAR_OPTIONS = [0, 20, 15, 10];
+function defaultBarFor(name){
+  const n = String(name || '');
+  if (/משקול|קטלבל|גובלט|סומו|ספליט|מכונ|סמית|dumbbell|kettlebell|goblet|sumo|split|machine|smith/i.test(n)) return undefined;
+  if (/ב[א]?רבל ?ראו|חתירה במוט|barbell row/i.test(n)) return 15;
+  if (/דדליפט|deadlift|סקוו?אט|סקאוט|squat/i.test(n)) return 20;
+  return undefined;
+}
+async function applyBarDefaults(){
+  let changed = false;
+  DAYS.forEach(d => d.exercises.forEach(ex => {
+    if (ex.bar !== undefined) return;
+    const b = defaultBarFor(ex.name);
+    if (b !== undefined){ ex.bar = b; changed = true; }
+  }));
+  if (changed) await saveOverrides();
+}
+const barOf = (ex) => (ex && ex.bar > 0) ? ex.bar : 0;
+function exById(exId){ return (DAYS.find(d => d.key === currentDayKey)?.exercises || []).find(e => e.id === exId); }
+function barChipText(ex, weightKg){
+  const bar = barOf(ex);
+  if (!bar) return '';
+  const side = weightKg != null && weightKg > bar ? Math.round((weightKg - bar) / 2 * 100) / 100 : null;
+  return `🏋️ מוט ${formatWeight(bar)} · רשום משקל כולל${side != null ? ` · לכל צד ${formatWeight(side)}` : ''}`;
+}
+
 async function saveOverrides(){
   const overrides = {};
   DAYS.forEach(d => {
@@ -1887,6 +1919,7 @@ async function renderExercises(){
           <button class="icon-btn" data-action="chart" data-ex="${ex.id}" data-exname="${ex.name}" title="התקדמות" aria-label="התקדמות">${ic('trend')}</button>
           ${editMode ? `
             <button class="icon-btn" data-action="edit" data-ex="${ex.id}" title="ערוך שם ויעד" aria-label="ערוך">${ic('pencil')}</button>
+            <button class="icon-btn bar-btn" data-action="bar" data-ex="${ex.id}" title="משקל המוט — לחיצה מחליפה" aria-label="משקל המוט">${barOf(ex) ? `מוט ${barOf(ex)}` : 'מוט —'}</button>
             <button class="icon-btn" data-action="up" data-ex="${ex.id}" title="הזז למעלה" aria-label="הזז למעלה">${ic('up')}</button>
             <button class="icon-btn" data-action="down" data-ex="${ex.id}" title="הזז למטה" aria-label="הזז למטה">${ic('down')}</button>
             <button class="icon-btn danger" data-action="del" data-ex="${ex.id}" title="הסר תרגיל" aria-label="הסר תרגיל">${ic('trash')}</button>
@@ -1955,6 +1988,10 @@ async function renderExercises(){
       const setIdx = inp.getAttribute('data-set');
       const saveBtn = list.querySelector(`.set-save-btn[data-ex="${exId}"][data-set="${setIdx}"]`);
       if (saveBtn) saveBtn.classList.remove('saved');
+      if (inp.getAttribute('data-field') === 'weight'){
+        const chip = list.querySelector(`[data-bar-chip="${exId}"]`);
+        if (chip) chip.textContent = barChipText(exById(exId), inp.value ? displayUnitToKg(Number(inp.value)) : null);
+      }
       updateLiveVolumeDisplay();
       autoStartWorkoutClock();
     });
@@ -1992,6 +2029,7 @@ async function renderExercises(){
       else if (action === 'up') moveExercise(currentDayKey, exId, -1);
       else if (action === 'down') moveExercise(currentDayKey, exId, 1);
       else if (action === 'del') removeExercise(currentDayKey, exId);
+      else if (action === 'bar') cycleBar(currentDayKey, exId);
     });
   });
 
@@ -2287,6 +2325,15 @@ async function addExercise(dayKey, name, target, muscle){
   showToast('התרגיל נוסף ✓');
 }
 
+async function cycleBar(dayKey, exId){
+  const ex = DAYS.find(d => d.key === dayKey).exercises.find(e => e.id === exId);
+  const i = BAR_OPTIONS.indexOf(barOf(ex));
+  ex.bar = BAR_OPTIONS[(i + 1) % BAR_OPTIONS.length];
+  await saveOverrides();
+  renderExercises();
+  showToast(ex.bar ? `מוט ${ex.bar} ק״ג — רושמים משקל כולל` : 'בלי מוט');
+}
+
 async function changeSetsCount(dayKey, delta){
   const day = DAYS.find(d => d.key === dayKey);
   day.setsCount = Math.min(8, Math.max(1, day.setsCount + delta));
@@ -2561,6 +2608,7 @@ function lastNoteChips(rec, pr, ex){
     }
   }
   html += `<span class="chip${hasLast ? '' : ' empty'}">${last}</span>`;
+  if (ex && barOf(ex)) html += `<span class="chip bar" data-bar-chip="${ex.id}">${barChipText(ex, null)}</span>`;
   if (pr) html += `<span class="chip pr">${ic('trophy')} שיא ${pr.reps ?? '-'}×${formatWeight(pr.weight)}</span>`;
   const warm = ex ? warmupPlan(ex, rec) : null;
   if (warm){
@@ -2582,7 +2630,8 @@ function warmupPlan(ex, rec){
   const work = next ? next.weight : Math.max(...sets.map(x => x.weight));
   if (work < 10) return null;
   const db = isDumbbellExercise(ex);
-  const round = (w) => db ? ([...DUMBBELL_KG].reverse().find(k => k <= w) ?? null) : Math.floor(w / 2.5) * 2.5;
+  const bar = barOf(ex);
+  const round = (w) => db ? ([...DUMBBELL_KG].reverse().find(k => k <= w) ?? null) : Math.max(bar, Math.floor(w / 2.5) * 2.5);
   const steps = [];
   [[0.4, 10], [0.6, 6], [0.8, 3]].forEach(([pct, reps]) => {
     const w = round(work * pct);
@@ -2617,8 +2666,8 @@ function lighterWeight(ex, top){
     const desc = [...DUMBBELL_KG].reverse();
     return desc.find(w => w <= top * 0.9) ?? desc.find(w => w < top) ?? null;
   }
-  const w = Math.min(Math.floor(top * 0.9 / 2.5) * 2.5, top - 2.5);
-  return w > 0 ? w : null;
+  const w = Math.max(barOf(ex), Math.min(Math.floor(top * 0.9 / 2.5) * 2.5, top - 2.5));
+  return w > 0 && w < top ? w : null;
 }
 
 function nextWeightSuggestion(ex, rec){
@@ -2689,6 +2738,14 @@ async function saveIndividualSet(btn, confirmed = false){
 
   if (reps === null && weight === null){
     showToast('הכנס חזרות או משקל לפני שמירה');
+    return;
+  }
+
+  const bar = barOf(exById(exId));
+  if (bar && weight != null && weight > 0 && weight < bar){
+    const total = weight + bar;
+    showConfirm('רשמת בלי המוט?', `${formatWeight(weight)} קל ממשקל המוט עצמו (${formatWeight(bar)}). כנראה רשמת רק את הצלחות. המשקל הכולל: ${formatWeight(total)}.`,
+      () => { weightInput.value = kgToDisplayUnit(total); saveIndividualSet(btn, confirmed); }, `שמור ${formatWeight(total)}`);
     return;
   }
 
@@ -4989,13 +5046,14 @@ document.getElementById('coachOverlay').addEventListener('click', (e) => {
 });
 
 // bump on every change that reaches the phone, and add a line to "History of changes" in CLAUDE.md
-const APP_VERSION = '1.17';
+const APP_VERSION = '1.18';
 const APP_VERSION_DATE = '30.9.2026';
 document.getElementById('appVersion').textContent = `גרסה ${APP_VERSION} · ${APP_VERSION_DATE}`;
 
 async function init(){
   const overrides = await loadOverrides();
   DAYS = buildDays(overrides);
+  try { await applyBarDefaults(); } catch (e) { console.error(e); }
   try { await repairSessionsFromSetLog(); } catch (e) { console.error(e); }
   await loadDeload();
   renderDeloadBanner();
