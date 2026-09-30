@@ -1656,7 +1656,7 @@ const activeExercises = (day) => day.exercises.filter(e => !e.hidden);
 
 /* ---------------- barbell weight per exercise ----------------
    ex.bar = weight of the empty bar in kg (0 = no bar). Weights are always logged as the total: bar + plates.
-   Defaults the user asked for (30.9.2026): barbell row 15 kg, deadlift and squat 20 kg. Set once, only where
+   Defaults the user asked for (30.9.2026): barbell row 15 kg; deadlift, squat and barbell chest press 20 kg. Set once, only where
    ex.bar is still undefined, so a later change in edit mode is kept. */
 const BAR_OPTIONS = [0, 20, 15, 10];
 function defaultBarFor(name){
@@ -1664,6 +1664,7 @@ function defaultBarFor(name){
   if (/משקול|קטלבל|גובלט|סומו|ספליט|מכונ|סמית|dumbbell|kettlebell|goblet|sumo|split|machine|smith/i.test(n)) return undefined;
   if (/ב[א]?רבל ?ראו|חתירה במוט|barbell row/i.test(n)) return 15;
   if (/דדליפט|deadlift|סקוו?אט|סקאוט|squat/i.test(n)) return 20;
+  if (/לחיצת חזה.*\(?מוט|לחיצת חזה במוט|barbell (incline|bench)/i.test(n)) return 20;
   return undefined;
 }
 async function applyBarDefaults(){
@@ -5046,7 +5047,7 @@ document.getElementById('coachOverlay').addEventListener('click', (e) => {
 });
 
 // bump on every change that reaches the phone, and add a line to "History of changes" in CLAUDE.md
-const APP_VERSION = '1.18';
+const APP_VERSION = '1.19';
 const APP_VERSION_DATE = '30.9.2026';
 document.getElementById('appVersion').textContent = `גרסה ${APP_VERSION} · ${APP_VERSION_DATE}`;
 
