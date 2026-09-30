@@ -1026,6 +1026,7 @@
   .last-note .chip.empty{ border-style:dashed; }
   .last-note .chip.next{ border-color:#4a5364; color:var(--text); }
   .last-note .chip.next.up{ border-color:var(--accent); color:var(--accent); font-weight:700; }
+  .last-note .chip.next.down{ border-color:#ffb347; color:#ffb347; font-weight:700; }
   .set-idx-btn{ width:28px; height:28px; padding:0; border-radius:50%; border:1.5px solid #3a4250; color:#aab2bf; font-size:12.5px; font-weight:700; }
   table.sets tr:has(.set-save-btn.saved) .set-idx-btn:not(.warmup){ background:var(--accent); border-color:var(--accent); color:#0b0d11; }
   table.sets tr:has(.set-save-btn.saved) input{ background:rgba(215,255,63,.07); }
@@ -1153,9 +1154,17 @@
   .coach-item.mid{ border-inline-start-color:#ffb347; }
   .coach-item.good{ border-inline-start-color:var(--accent); }
   .coach-item b{ display:block; font-size:15px; margin-bottom:4px; }
+  .coach-item .fix{ color:#ffb347; font-weight:700; white-space:nowrap; }
   .coach-item .why{ color:var(--muted); font-size:13px; line-height:1.45; }
   .coach-item .act{ font-size:14px; margin-top:6px; line-height:1.45; }
   .coach-sec{ font-size:13px; font-weight:800; color:var(--muted); margin:18px 0 8px; }
+  .vol-grid{ background:var(--bg); border-radius:14px; padding:10px 14px 12px; margin-bottom:10px; }
+  .vol-row{ display:grid; grid-template-columns:84px 1fr 28px; align-items:center; gap:10px; font-size:13px; padding:5px 0; }
+  .vol-row b{ text-align:center; font-size:14px; }
+  .vol-track{ position:relative; height:8px; border-radius:9px; background:var(--surface2); }
+  .vol-fill{ height:100%; border-radius:9px; }
+  .vol-track i{ position:absolute; top:-3px; bottom:-3px; width:1px; background:var(--muted); opacity:.55; }
+  .vol-legend{ color:var(--muted); font-size:12px; line-height:1.5; margin-top:8px; }
   .coach-next{ background:var(--accent); color:#0b0d11; border-radius:14px; padding:12px 14px; font-weight:700; line-height:1.45; margin-top:16px; }
   .trend-title{ font-size:15px; font-weight:800; margin-bottom:10px; }
   .trend-row{ display:flex; justify-content:space-between; align-items:baseline; gap:8px; font-size:14px; flex-wrap:wrap; }
@@ -1847,7 +1856,7 @@ async function renderExercises(){
       const lastSet = lastForEx && lastForEx.sets[i - 1] ? lastForEx.sets[i - 1] : null;
       const lastWeight = lastSet && lastSet.weight !== null && lastSet.weight !== undefined ? kgToDisplayUnit(lastSet.weight) : '';
       // when it is time to go up, hint the new weight on working sets instead of last time's
-      const weightPlaceholder = nextUp && nextUp.kind === 'up' && lastSet && !lastSet.warmup ? kgToDisplayUnit(nextUp.weight) : lastWeight;
+      const weightPlaceholder = nextUp && (nextUp.kind === 'up' || nextUp.kind === 'down') && lastSet && !lastSet.warmup ? kgToDisplayUnit(nextUp.weight) : lastWeight;
       rows += `
         <tr>
           <td><button class="set-idx-btn" data-ex="${ex.id}" data-set="${i}" title="לחיצה = סימון כחימום">${i}</button></td>
@@ -2425,7 +2434,7 @@ function showWorkoutSummary(day, session, previous, newPRs, secs){
       cmp = `<div class="sum-cmp" style="color:${pct >= 0 ? 'var(--accent)' : '#ffb347'}">נפח <bdi dir="ltr">${pct > 0 ? '+' : ''}${pct}%</bdi> לעומת הפעם הקודמת (${previous.date})</div>`;
     }
   }
-  const improved = [], nextUp = [];
+  const improved = [], nextUp = [], nextDown = [];
   activeExercises(day).forEach(ex => {
     const rec = normalizeExRecord(session.exercises[ex.id]);
     const cur = (rec && rec.sets || []).filter(x => x && !x.warmup && x.weight != null);
@@ -2442,6 +2451,7 @@ function showWorkoutSummary(day, session, previous, newPRs, secs){
     }
     const next = nextWeightSuggestion(ex, rec);
     if (next && next.kind === 'up') nextUp.push(`<div class="sum-row"><span>${ex.name}</span><b>${formatWeight(next.weight)}</b></div>`);
+    if (next && next.kind === 'down') nextDown.push(`<div class="sum-row"><span>${ex.name}</span><b style="color:#ffb347">${formatWeight(next.weight)}</b></div>`);
   });
   document.getElementById('summaryBody').innerHTML = `
     <div class="sum-hero"><div class="t">${newPRs.length ? '🏆 אימון עם שיא!' : 'כל הכבוד 💪'}</div><div class="d">${day.label} · ${session.date}</div></div>
@@ -2454,8 +2464,9 @@ function showWorkoutSummary(day, session, previous, newPRs, secs){
     ${newPRs.length ? `<div class="sum-sec">שיאים חדשים</div>${newPRs.map(n => `<div class="sum-row"><span>🏆 ${n}</span></div>`).join('')}` : ''}
     ${improved.length ? `<div class="sum-sec">השתפרת לעומת הפעם הקודמת</div>${improved.join('')}` : ''}
     <div class="sum-sec">בפעם הבאה</div>
-    ${nextUp.length ? `<div class="why" style="color:var(--muted);font-size:13px;margin-bottom:6px">הגעת לראש טווח החזרות — להעלות משקל:</div>${nextUp.join('')}`
-      : '<div style="color:var(--muted);font-size:13px">אותם משקלים, ולנסות להוסיף חזרה אחת בכל סט עד ראש הטווח.</div>'}
+    ${nextUp.length ? `<div class="why" style="color:var(--muted);font-size:13px;margin-bottom:6px">הגעת לראש טווח החזרות — להעלות משקל:</div>${nextUp.join('')}` : ''}
+    ${nextDown.length ? `<div class="why" style="color:var(--muted);font-size:13px;margin:${nextUp.length ? '10px' : '0'} 0 6px">החזרות נפלו מתחת לטווח — להוריד משקל:</div>${nextDown.join('')}` : ''}
+    ${!nextUp.length && !nextDown.length ? '<div style="color:var(--muted);font-size:13px">אותם משקלים, ולנסות להוסיף חזרה אחת בכל סט עד ראש הטווח.</div>' : ''}
     <button class="save-btn" id="summaryDoneBtn" style="width:100%;margin-top:16px">סגור</button>`;
   document.getElementById('summaryOverlay').classList.add('open');
   document.getElementById('summaryDoneBtn').addEventListener('click', () => document.getElementById('summaryOverlay').classList.remove('open'));
@@ -2510,8 +2521,12 @@ function lastNoteChips(rec, pr, ex){
   let html = '';
   const next = ex ? nextWeightSuggestion(ex, rec) : null;
   if (next){
-    const hint = next.kind === 'up' ? '' : next.kind === 'keep' ? ' · נסה להוסיף חזרה' : ` · קודם להגיע ל-${next.lo} חזרות`;
-    html += `<span class="chip next${next.kind === 'up' ? ' up' : ''}">${next.kind === 'up' ? ic('up') + ' ' : ''}הבא: ${formatWeight(next.weight)}${hint}</span>`;
+    if (next.kind === 'down'){
+      html += `<span class="chip next down">${ic('down')} הבא: ${formatWeight(next.weight)} · כבד מדי בפעם הקודמת</span>`;
+    } else {
+      const hint = next.kind === 'up' ? '' : next.kind === 'keep' ? ' · נסה להוסיף חזרה' : ` · קודם להגיע ל-${next.lo} חזרות`;
+      html += `<span class="chip next${next.kind === 'up' ? ' up' : ''}">${next.kind === 'up' ? ic('up') + ' ' : ''}הבא: ${formatWeight(next.weight)}${hint}</span>`;
+    }
   }
   html += `<span class="chip${hasLast ? '' : ' empty'}">${last}</span>`;
   if (pr) html += `<span class="chip pr">${ic('trophy')} שיא ${pr.reps ?? '-'}×${formatWeight(pr.weight)}</span>`;
@@ -2562,6 +2577,18 @@ function repRange(target){
   return m ? { lo: Number(m[1]), hi: Number(m[2]) } : null;
 }
 
+const isBodyweightExercise = (ex) => /מתח|מקבילים|שכיבות|pull ?up|chin|dip/i.test((ex && ex.name) || '');
+
+// about 10% lighter, rounded down to a weight that exists: the dumbbell pair below, or a 2.5 kg step
+function lighterWeight(ex, top){
+  if (isDumbbellExercise(ex)){
+    const desc = [...DUMBBELL_KG].reverse();
+    return desc.find(w => w <= top * 0.9) ?? desc.find(w => w < top) ?? null;
+  }
+  const w = Math.min(Math.floor(top * 0.9 / 2.5) * 2.5, top - 2.5);
+  return w > 0 ? w : null;
+}
+
 function nextWeightSuggestion(ex, rec){
   const range = repRange(ex.target);
   const sets = ((rec && rec.sets) || []).filter(s => s && !s.warmup && s.reps != null && s.weight != null && s.weight > 0);
@@ -2571,6 +2598,13 @@ function nextWeightSuggestion(ex, rec){
   if (atTop.every(s => s.reps >= range.hi)){
     const up = isDumbbellExercise(ex) ? (DUMBBELL_KG.find(w => w > top) ?? top + 2.5) : top + 2.5;
     return { kind: 'up', weight: up, lo: range.lo };
+  }
+  // too heavy: most sets at the top weight ended 2+ reps under the range (one tired last set is not enough).
+  // Bodyweight moves (pull-ups, dips) have no weight to take off, so they get advice instead, in the coach report.
+  const short = atTop.filter(s => s.reps < range.lo - 1).length;
+  if (short * 2 > atTop.length && !isBodyweightExercise(ex)){
+    const down = lighterWeight(ex, top);
+    if (down) return { kind: 'down', weight: down, lo: range.lo, from: top };
   }
   return { kind: atTop.some(s => s.reps < range.lo) ? 'low' : 'keep', weight: top, lo: range.lo };
 }
@@ -4684,7 +4718,7 @@ async function buildCoachReport(){
   // 1. per exercise: ready to go up, stalled, reps outside the range, performance drop
   const readyUp = [], stalled = [], tooHeavy = [], tooLight = [], dropped = [], suspicious = [];
   let enoughHistory = 0;
-  const bodyweight = (ex) => /מתח|מקבילים|שכיבות|pull ?up|chin|dip/i.test(ex.name || '');
+  const bodyweight = isBodyweightExercise;
   exList.forEach(ex => {
     const all = timeline[ex.id] || [];
     // obvious typos (e.g. 86 reps) would distort every calculation, so they are reported and left out
@@ -4699,7 +4733,11 @@ async function buildCoachReport(){
     if (range){
       const reps = last.sets.map(x => x.reps).filter(r => r != null);
       const span = reps.length ? (Math.min(...reps) === Math.max(...reps) ? `${reps[0]}` : `${Math.min(...reps)}–${Math.max(...reps)}`) : '';
-      if (reps.some(r => r < range.lo - 1)) tooHeavy.push(`${ex.name}: ${span} חזרות, יעד ${range.lo}–${range.hi}`);
+      if (reps.some(r => r < range.lo - 1)){
+        const fix = next && next.kind === 'down' ? ` → <span class="fix">הורד ל-${formatWeight(next.weight)}</span>`
+          : bodyweight(ex) ? ' → <span class="fix">עם סיוע (גומייה או מכונת מתח)</span>' : '';
+        tooHeavy.push(`${ex.name}: ${span} חזרות, יעד ${range.lo}–${range.hi}${fix}`);
+      }
       else if (reps.length && reps.every(r => r > range.hi + 2)) tooLight.push(`${ex.name}: ${span} חזרות, יעד ${range.lo}–${range.hi}`);
     }
     if (sessions.length >= 3){
@@ -4737,6 +4775,7 @@ async function buildCoachReport(){
   const rate = await computeWeightRate();
 
   // ---- turn the signals into upgrades, most important first ----
+  const listHtml = (arr, max = 5) => { const u = [...new Set(arr)]; return u.slice(0, max).map(t => `• ${t}`).join('<br>') + (u.length > max ? `<br>ועוד ${u.length - max}` : ''); };
   if (dropped.length >= 2 || (dropped.length && week >= 5)){
     add('high', 'סימני עייפות מצטברת', 'ירידה של יותר מ-7% בכוח המשוער לעומת השיא ב:<br>' + listHtml(dropped), week >= 5 ? `אתה בשבוע ${week} בבלוק. זה הזמן לשבוע דילוד: חצי מהסטים, אותם משקלים, בלי כישלון.` : 'בדוק שינה (7–9 שעות) וחלבון השבוע. אם הירידה נמשכת עוד אימון, קח שבוע דילוד.');
   } else if (week >= 8){
@@ -4745,9 +4784,8 @@ async function buildCoachReport(){
     add('mid', `שבוע ${week} בבלוק`, 'דילוד מתוכנן כל 5–8 שבועות שומר על מפרקים ועל התקדמות.', 'שים לב לשינה ולביצועים. בירידה ראשונה — שבוע קל.');
   }
 
-  const listHtml = (arr, max = 5) => { const u = [...new Set(arr)]; return u.slice(0, max).map(t => `• ${t}`).join('<br>') + (u.length > max ? `<br>ועוד ${u.length - max}` : ''); };
   if (suspicious.length) add('high', 'נתונים לבדיקה', listHtml(suspicious), 'אם זו טעות הקלדה, תקן או מחק את הסט בהיסטוריה ← "כל הסטים". נתון שגוי מבלבל את ההמלצות להעלאת משקל ואת השיאים.');
-  if (tooHeavy.length) add('high', `חזרות מתחת לטווח (${new Set(tooHeavy).size} תרגילים)`, listHtml(tooHeavy), 'בתרגילי בידוד (ידיים, כתפיים, תאומים) הורד משקל עד שתגיע לתחתית הטווח. שם השריר גדל, והמרפקים והכתפיים נשמרים. בתרגילים הכבדים 1–2 חזרות מתחת לטווח זה בסדר.');
+  if (tooHeavy.length) add('high', `חזרות מתחת לטווח (${new Set(tooHeavy).size} תרגילים)`, listHtml(tooHeavy, 8), 'איפה שמופיע משקל חדש — עבוד איתו כבר באימון הבא (הוא מופיע גם בכרטיס התרגיל, ו-✓ על שדה ריק שומר אותו). בשאר, רק סט אחד נפל מתחת לטווח: אותו משקל, ועוד חצי דקה מנוחה לפני הסט האחרון. בטווח החזרות השריר גדל, והמפרקים נשמרים.');
   if (lowVol.length) add('high', 'נפח נמוך לשרירים גדולים', `ב-7 הימים האחרונים: ${lowVol.map(m => `${m} ${totals[m] || 0}`).join(' · ')} סטים. היעד 10–20 לשבוע.`, 'הוסף סט אחד לתרגיל הראשון של השריר בכל אימון שלו. מעלים בהדרגה, לא הכול בבת אחת.');
   if (stalled.length) add('mid', 'תרגילים תקועים', 'אין עלייה בכוח המשוער ב-3 האימונים האחרונים:<br>' + listHtml(stalled), 'קודם שינה, חלבון ו-RIR 1–2 בסט האחרון. אם עוד שבועיים אין תזוזה — החלף וריאציה (למשל משקולות יד ↔ כבל) או הוסף סט.');
   if (tooLight.length) add('mid', 'משקל קל מדי', listHtml(tooLight), 'העלה משקל כבר באימון הבא. מעל הטווח זה כבר אימון סיבולת.');
@@ -4768,7 +4806,22 @@ async function buildCoachReport(){
   if (rate !== null && rate >= WEIGHT_GAIN_TARGET.min && rate <= WEIGHT_GAIN_TARGET.max) add('good', 'קצב עלייה במשקל מצוין', `+${rate.toFixed(2)} ק״ג בשבוע.`, 'אל תשנה קלוריות.');
   if (protein && protein.avg >= protein.goal) add('good', 'חלבון ביעד', `ממוצע ${Math.round(protein.avg)} ג׳ ליום.`, 'להמשיך.');
 
-  return { items, enoughHistory, totalExercises: exList.length, last7 };
+  return { items, enoughHistory, totalExercises: exList.length, last7, totals };
+}
+
+// weekly working sets per muscle as bars, with the 10 and 20 set marks
+function volumeSectionHtml(totals){
+  const SCALE = 25;
+  const rows = MUSCLE_ORDER.filter(m => m !== 'אחר').map(m => {
+    const n = totals[m] || 0;
+    const major = MAJOR_MUSCLES.includes(m);
+    const color = n > 20 ? 'var(--danger)' : n >= 10 ? 'var(--accent)' : major ? '#ffb347' : 'var(--muted)';
+    return `<div class="vol-row"><span class="m">${m}</span><div class="vol-track"><div class="vol-fill" style="width:${Math.min(100, n / SCALE * 100)}%;background:${color}"></div><i style="inset-inline-start:${10 / SCALE * 100}%"></i><i style="inset-inline-start:${20 / SCALE * 100}%"></i></div><b style="color:${n ? color : 'var(--muted)'}">${n}</b></div>`;
+  }).join('');
+  return `<div class="coach-sec">סטים לשריר · 7 ימים אחרונים</div>
+    <div class="vol-grid">${rows}
+      <div class="vol-legend">סטים עובדים, בלי חימום. הקווים מסמנים 10 ו-20 — הטווח המומלץ לשבוע. <span style="color:#ffb347">כתום</span> = שריר גדול מתחת ל-10. ידיים, ישבן ותאומים מקבלים גם עבודה עקיפה מהתרגילים המורכבים.</div>
+    </div>`;
 }
 
 async function renderCoach(){
@@ -4789,6 +4842,7 @@ async function renderCoach(){
   body.innerHTML = `<p class="coach-lead">${lead}</p>${dataNote}
     ${fixes.length ? `<div class="coach-sec">שדרוגים לפי סדר חשיבות</div>${fixes.map(card).join('')}` : ''}
     ${good.length ? `<div class="coach-sec">מה עובד</div>${good.map(card).join('')}` : ''}
+    ${volumeSectionHtml(r.totals || {})}
     ${fixes.length ? `<div class="coach-next">הצעד הבא: ${fixes[0].act}</div>` : ''}
     <div class="why" style="margin-top:16px">הדוח מבוסס על הנתונים באפליקציה ועל עקרונות אימון לבניית שריר בגיל 40+. הוא לא מחליף רופא — בכאב חד או מחמיר, עצור את התרגיל.</div>`;
 }
@@ -4806,8 +4860,8 @@ document.getElementById('coachOverlay').addEventListener('click', (e) => {
 });
 
 // bump on every change that reaches the phone, and add a line to "History of changes" in CLAUDE.md
-const APP_VERSION = '1.14';
-const APP_VERSION_DATE = '29.9.2026';
+const APP_VERSION = '1.15';
+const APP_VERSION_DATE = '30.9.2026';
 document.getElementById('appVersion').textContent = `גרסה ${APP_VERSION} · ${APP_VERSION_DATE}`;
 
 async function init(){
