@@ -1165,6 +1165,19 @@
   .vol-fill{ height:100%; border-radius:9px; }
   .vol-track i{ position:absolute; top:-3px; bottom:-3px; width:1px; background:var(--muted); opacity:.55; }
   .vol-legend{ color:var(--muted); font-size:12px; line-height:1.5; margin-top:8px; }
+  .cal-coach{ margin:8px 18px 12px; background:var(--bg); border-radius:16px; padding:14px; }
+  .cal-coach:empty{ display:none; }
+  .cal-coach .cc-title{ font-size:14px; font-weight:800; margin-bottom:10px; }
+  .cal-coach .cc-stats{ display:grid; grid-template-columns:repeat(3,1fr); gap:6px; margin-bottom:12px; }
+  .cal-coach .cc-stat{ background:var(--surface2); border-radius:12px; padding:8px 4px; text-align:center; }
+  .cal-coach .cc-stat b{ display:block; font-size:16px; }
+  .cal-coach .cc-stat span{ color:var(--muted); font-size:11px; }
+  .cal-coach .cc-verdict{ border-radius:12px; padding:12px; line-height:1.45; font-size:14px; border:1px solid var(--line); }
+  .cal-coach .cc-verdict .big{ display:block; font-size:22px; font-weight:800; margin-bottom:2px; }
+  .cal-coach .cc-note{ color:var(--muted); font-size:12px; line-height:1.5; margin-top:8px; }
+  .cal-coach .cc-progress{ color:var(--muted); font-size:13px; line-height:1.55; }
+  .cal-coach .cc-progress b{ color:var(--text); }
+  .cal-coach button{ width:100%; margin-top:10px; }
   .coach-next{ background:var(--accent); color:#0b0d11; border-radius:14px; padding:12px 14px; font-weight:700; line-height:1.45; margin-top:16px; }
   .trend-title{ font-size:15px; font-weight:800; margin-bottom:10px; }
   .trend-row{ display:flex; justify-content:space-between; align-items:baseline; gap:8px; font-size:14px; flex-wrap:wrap; }
@@ -1444,6 +1457,7 @@
     </div>
     <div class="nut-protein" id="nutProtein"></div>
     <div class="nut-totals" id="nutTotals"></div>
+    <div class="cal-coach" id="calCoach"></div>
     <div style="padding:0 18px;">
       <div class="nut-search">
         <input type="text" id="nutNameInput" placeholder="מה אכלת? למשל קוטג'" autocomplete="off">
@@ -3765,6 +3779,102 @@ async function saveNutritionGoalFromInputs(){
   renderNutritionPanel();
 }
 
+/* ---------------- calorie coach: how much to eat for lean gain ----------------
+   Adaptive maintenance estimate from the user's own data (last 14 full days, today excluded):
+   maintenance ≈ average intake − weekly weight change × 7700 / 7  (≈7700 kcal per kg of body mass).
+   Target = maintenance + 275 kcal (≈0.25 kg a week, the middle of WEIGHT_GAIN_TARGET).
+   Changes are capped at ±300 kcal per step, so the body weight has time to answer before the next change. */
+const CAL_WINDOW_DAYS = 14;
+const CAL_MIN_DAY = 1000;        // a day logged with less than this is treated as partly logged and skipped
+const CAL_MIN_DAYS = 5;          // full logged days needed
+const CAL_MIN_WEIGHINS = 3;      // weigh-ins needed, spread over at least 7 days
+const KCAL_PER_KG = 7700;
+const CAL_MAX_STEP = 300;
+const round50 = (n) => Math.round(n / 50) * 50;
+
+async function computeCalorieCoach(){
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const days = [];
+  for (let i = 1; i <= CAL_WINDOW_DAYS; i++){
+    const d = new Date(today); d.setDate(d.getDate() - i);
+    const kcal = ((await loadNutritionDay(d)).entries || []).reduce((s, e) => s + (Number(e.calories) || 0), 0);
+    if (kcal >= CAL_MIN_DAY) days.push(kcal);
+  }
+  const intake = days.length ? days.reduce((a, b) => a + b, 0) / days.length : null;
+
+  // weight trend: least-squares slope over the weigh-ins of the same window (smooths day-to-day water swings)
+  const pts = (await loadBodyWeightLog()).map(e => ({ d: parseHeDate(e.date), w: Number(e.weight) }))
+    .filter(p => p.d && p.w > 0).map(p => ({ x: Math.round((p.d - today) / 86400000), w: p.w }))
+    .filter(p => p.x <= 0 && p.x > -CAL_WINDOW_DAYS);
+  const span = pts.length ? Math.max(...pts.map(p => p.x)) - Math.min(...pts.map(p => p.x)) : 0;
+  let rate = null;
+  if (pts.length >= CAL_MIN_WEIGHINS && span >= 7){
+    const mx = pts.reduce((s, p) => s + p.x, 0) / pts.length, mw = pts.reduce((s, p) => s + p.w, 0) / pts.length;
+    const num = pts.reduce((s, p) => s + (p.x - mx) * (p.w - mw), 0), den = pts.reduce((s, p) => s + (p.x - mx) ** 2, 0);
+    rate = den ? num / den * 7 : null;
+  }
+  const out = { intake, loggedDays: days.length, weighIns: pts.length, span, rate };
+  if (intake === null || days.length < CAL_MIN_DAYS || rate === null) return out;
+
+  const maintenance = intake - rate * KCAL_PER_KG / 7;
+  const mid = (WEIGHT_GAIN_TARGET.min + WEIGHT_GAIN_TARGET.max) / 2;
+  const ideal = maintenance + mid * KCAL_PER_KG / 7;
+  let change = 0;
+  if (rate < WEIGHT_GAIN_TARGET.min || rate > WEIGHT_GAIN_TARGET.max){
+    change = round50(Math.max(-CAL_MAX_STEP, Math.min(CAL_MAX_STEP, ideal - intake)));
+    if (Math.abs(change) < 100) change = Math.sign(ideal - intake) * 100;
+  }
+  return { ...out, maintenance: round50(maintenance), change, target: round50(intake + change) };
+}
+
+async function renderCalorieCoach(){
+  const box = document.getElementById('calCoach');
+  const c = await computeCalorieCoach();
+  const goal = await loadNutritionGoal();
+  const num = (v) => Math.round(v).toLocaleString('he-IL');
+  const title = `<div class="cc-title">🔥 מעקב קלוריות · ${CAL_WINDOW_DAYS} ימים אחרונים</div>`;
+
+  if (c.target === undefined){
+    const needDays = Math.max(0, CAL_MIN_DAYS - c.loggedDays);
+    const needW = Math.max(0, CAL_MIN_WEIGHINS - c.weighIns);
+    const lines = [];
+    lines.push(needDays ? `רישום אוכל: <b>${c.loggedDays} מתוך ${CAL_MIN_DAYS}</b> ימים מלאים — עוד ${needDays}` : `רישום אוכל: <b>${c.loggedDays} ימים ✓</b> · ממוצע ${num(c.intake)} קלוריות`);
+    lines.push(needW ? `שקילות: <b>${c.weighIns} מתוך ${CAL_MIN_WEIGHINS}</b> — עוד ${needW}` : c.span < 7 ? `שקילות: <b>${c.weighIns} ✓</b>, אבל צריך פער של שבוע בין הראשונה לאחרונה` : `שקילות: <b>${c.weighIns} ✓</b>`);
+    box.innerHTML = `${title}<div class="cc-progress">כדי לחשב כמה קלוריות אתה צריך, האפליקציה משווה בין מה שאכלת לבין השינוי במשקל.<br>${lines.join('<br>')}</div>
+      <div class="cc-note">יום עם פחות מ-${num(CAL_MIN_DAY)} קלוריות לא נספר, כי כנראה לא כל האוכל נרשם. היום עצמו נספר רק מחר.</div>`;
+    return;
+  }
+
+  const sign = c.rate > 0 ? '+' : '';
+  const stats = `<div class="cc-stats">
+      <div class="cc-stat"><b>${num(c.intake)}</b><span>ממוצע ליום</span></div>
+      <div class="cc-stat"><b><bdi dir="ltr">${sign}${c.rate.toFixed(2)}</bdi></b><span>ק״ג בשבוע</span></div>
+      <div class="cc-stat"><b>${num(c.maintenance)}</b><span>שמירה משוערת</span></div>
+    </div>`;
+  let verdict;
+  if (c.change === 0){
+    verdict = `<div class="cc-verdict" style="border-color:var(--accent)"><span class="big" style="color:var(--accent)">להמשיך ככה ✓</span>
+      המשקל עולה בקצב הנכון לבניית שריר (${WEIGHT_GAIN_TARGET.min}–${WEIGHT_GAIN_TARGET.max} ק״ג בשבוע). נשאר על כ-${num(c.intake)} קלוריות ביום.</div>`;
+  } else {
+    const up = c.change > 0;
+    const color = '#ffb347';
+    verdict = `<div class="cc-verdict" style="border-color:${color}"><span class="big" style="color:${color}"><bdi dir="ltr">${up ? '+' : '−'}${num(Math.abs(c.change))}</bdi> קלוריות ביום</span>
+      ${up ? 'המשקל עולה לאט מדי, אז חסר חומר לבניית שריר.' : 'המשקל עולה מהר מדי, וחלק מהעלייה הוא שומן.'} יעד חדש: <b>${num(c.target)}</b> קלוריות ביום.
+      ${up ? 'הכי קל להוסיף פחמימות סביב האימון (אורז, לחם, פרי).' : 'הכי קל להוריד שומן מוסף ונשנושים, ולא את החלבון.'}</div>
+      ${goal.calories === c.target ? '<div class="cc-note">✓ זה כבר היעד שלך.</div>' : `<button class="save-btn" id="calApplyBtn">קבע ${num(c.target)} כיעד היומי</button>`}`;
+  }
+  box.innerHTML = `${title}${stats}${verdict}
+    <div class="cc-note">החישוב מתעדכן לבד. אחרי שינוי, תן לו שבועיים לפני שינוי נוסף — המשקל צריך זמן להגיב. ימים עם פחות מ-${num(CAL_MIN_DAY)} קלוריות לא נספרים.</div>`;
+  const btn = document.getElementById('calApplyBtn');
+  if (btn) btn.addEventListener('click', async () => {
+    const g = await loadNutritionGoal();
+    g.calories = c.target;
+    await saveNutritionGoal(g);
+    showToast(`יעד הקלוריות עודכן ל-${num(c.target)} ✓`);
+    renderNutritionPanel();
+  });
+}
+
 async function renderNutritionPanel(){
   document.getElementById('nutDateLabel').textContent = displayDateHe(nutritionDate);
   const data = await loadNutritionDay(nutritionDate);
@@ -3781,6 +3891,7 @@ async function renderNutritionPanel(){
   });
 
   renderProteinBar(totals.protein, goal.protein);
+  renderCalorieCoach();
   renderRecentFoods();
   renderMeals();
 
@@ -4796,8 +4907,8 @@ async function buildCoachReport(){
 
   if (protein && protein.avg < protein.goal * 0.85) add('high', 'חסר חלבון', `ממוצע ${Math.round(protein.avg)} ג׳ ליום מול יעד ${protein.goal} ג׳.`, 'הוסף מנת חלבון של 30–40 ג׳ (יוגורט חלבון, קוטג׳, שייק) בארוחה שבה אתה הכי חסר. אחרי 40 צריך יותר חלבון בכל ארוחה.');
   else if (!protein) add('mid', 'אין נתוני תזונה', 'בלי מעקב חלבון אי אפשר לדעת אם התזונה תומכת בבניית שריר.', 'רשום אוכל ב"יומן תזונה" 3–4 ימים בשבוע, מספיק כדי לראות ממוצע.');
-  if (rate !== null && rate < WEIGHT_GAIN_TARGET.min) add('mid', 'משקל הגוף כמעט לא עולה', `שינוי של ${rate.toFixed(2)} ק״ג בשבוע. היעד ${WEIGHT_GAIN_TARGET.min}–${WEIGHT_GAIN_TARGET.max}.`, 'הוסף כ-200 קלוריות ביום, עדיף פחמימות סביב האימון.');
-  else if (rate !== null && rate > WEIGHT_GAIN_TARGET.max) add('mid', 'עלייה מהירה במשקל', `+${rate.toFixed(2)} ק״ג בשבוע — חלק מזה שומן.`, 'הורד כ-150 קלוריות ביום.');
+  if (rate !== null && rate < WEIGHT_GAIN_TARGET.min) add('mid', 'משקל הגוף כמעט לא עולה', `שינוי של ${rate.toFixed(2)} ק״ג בשבוע. היעד ${WEIGHT_GAIN_TARGET.min}–${WEIGHT_GAIN_TARGET.max}.`, 'הוסף כ-200 קלוריות ביום, עדיף פחמימות סביב האימון. המספר המדויק: יומן תזונה ← מעקב קלוריות.');
+  else if (rate !== null && rate > WEIGHT_GAIN_TARGET.max) add('mid', 'עלייה מהירה במשקל', `+${rate.toFixed(2)} ק״ג בשבוע — חלק מזה שומן.`, 'הורד כ-150 קלוריות ביום. המספר המדויק: יומן תזונה ← מעקב קלוריות.');
   else if (rate === null) add('mid', 'אין מספיק שקילות', 'כדי לדעת אם אתה בעודף קלורי צריך ממוצע שבועי.', 'שקול את עצמך 2–3 בבוקר בשבוע ב"מעקב משקל גוף".');
 
   // what is working
@@ -4860,7 +4971,7 @@ document.getElementById('coachOverlay').addEventListener('click', (e) => {
 });
 
 // bump on every change that reaches the phone, and add a line to "History of changes" in CLAUDE.md
-const APP_VERSION = '1.15';
+const APP_VERSION = '1.16';
 const APP_VERSION_DATE = '30.9.2026';
 document.getElementById('appVersion').textContent = `גרסה ${APP_VERSION} · ${APP_VERSION_DATE}`;
 
