@@ -2138,6 +2138,7 @@ async function restoreTodaySets(dayKey){
   if (restored){
     updateLiveVolumeDisplay();
     autoStartWorkoutClock();
+    for (const exId of Object.keys(saved)) await refreshLiveHints(exId);
   }
 }
 
@@ -2172,7 +2173,8 @@ function buildLastFromData(data, log, setsCount){
   };
   (data.history || []).forEach(sess => Object.entries(sess.exercises || {}).forEach(([exId, r]) => consider(exId, sess.date, normalizeExRecord(r))));
   const finishedDates = new Set((data.history || []).map(h => h.date));
-  const logDates = [...new Set(log.map(e => e.date))].filter(d => !finishedDates.has(d));
+  const today = todayStr();
+  const logDates = [...new Set(log.map(e => e.date))].filter(d => !finishedDates.has(d) && d !== today);
   logDates.forEach(dateStr => {
     Object.entries(setLogByDate(log, dateStr)).forEach(([exId, sets]) => {
       const rec = { sets: [], note: '' };
@@ -2584,6 +2586,67 @@ async function persistSetToLast(exId, setIdx, reps, weight, warmup){
   return rec;
 }
 
+/* ---------------- live hint for the next set ----------------
+   Driven by today's last working set: 2+ reps over the range -> one step heavier now,
+   2+ reps under it -> about 10% lighter now, otherwise the same weight.
+   "לאחרונה" and the weekly suggestion keep using the previous session, not today's partial sets. */
+function nextSetSuggestion(ex, todaySets){
+  const work = todaySets.filter(x => x && !x.warmup && x.weight != null && x.weight > 0);
+  if (!work.length) return null;
+  const lastSet = work[work.length - 1];
+  const range = repRange(ex.target);
+  const w = lastSet.weight;
+  if (range && lastSet.reps != null){
+    if (lastSet.reps >= range.hi + 2){
+      const up = isDumbbellExercise(ex) ? (DUMBBELL_KG.find(k => k > w) ?? w + 2.5) : w + 2.5;
+      return { kind: 'up', weight: up, why: `${lastSet.reps} חזרות, מעל הטווח — להעלות` };
+    }
+    if (lastSet.reps < range.lo - 1 && !isBodyweightExercise(ex)){
+      const down = lighterWeight(ex, w);
+      if (down) return { kind: 'down', weight: down, why: `${lastSet.reps} חזרות, מתחת לטווח — להוריד` };
+    }
+  }
+  return { kind: 'keep', weight: w, why: range ? `אותו משקל, ${range.lo}–${range.hi} חזרות` : 'אותו משקל' };
+}
+
+// previous-session record for the chips (same fallback as the card render)
+function prevRecFor(data, exId){
+  let rec = normalizeExRecord(data && data.last ? data.last[exId] : null);
+  if (!rec || !(rec.sets || []).some(x => hasSetData(x))){
+    const older = ((data && data.history) || []).map(sx => normalizeExRecord(sx.exercises ? sx.exercises[exId] : null))
+      .find(r => r && (r.sets || []).some(x => hasSetData(x)));
+    if (older) rec = older;
+  }
+  return rec;
+}
+
+// after a ✓ (or its undo): update the chip and the grey weight of the sets still to do
+async function refreshLiveHints(exId){
+  const day = DAYS.find(d => d.key === currentDayKey);
+  const ex = (day && day.exercises || []).find(e => e.id === exId);
+  const card = document.querySelector(`.card[data-ex-card="${exId}"]`);
+  if (!ex || !card) return;
+  const data = await loadDayData(currentDayKey);
+  const finishedToday = data.history && data.history[0] && data.history[0].date === todayStr();
+  const byIdx = finishedToday ? {} : (setLogByDate(await loadSetLog(currentDayKey), todayStr())[exId] || {});
+  const todaySets = Object.keys(byIdx).map(Number).sort((a, b) => a - b).map(i => byIdx[i]);
+  const prev = prevRecFor(data, exId);
+  let live = null;
+  if (todaySets.some(x => x && !x.warmup)){
+    const pending = [...card.querySelectorAll('.set-save-btn')].filter(b => !b.classList.contains('saved'));
+    live = pending.length ? { nextSet: nextSetSuggestion(ex, todaySets) } : { nextTime: nextWeightSuggestion(ex, { sets: todaySets.filter(x => x && !x.warmup) }) };
+    const n = live.nextSet;
+    if (n){
+      pending.forEach(b => {
+        const w = card.querySelector(`input[data-set="${b.getAttribute('data-set')}"][data-field="weight"]`);
+        if (w && !w.value) w.placeholder = kgToDisplayUnit(n.weight);
+      });
+    }
+  }
+  const noteDiv = card.querySelector('.last-note');
+  if (noteDiv) noteDiv.innerHTML = lastNoteChips(prev, data.prs ? data.prs[exId] : null, ex, live);
+}
+
 function updateLastNoteDisplay(exId, rec){
   const data = dayDataCache[currentDayKey];
   const pr = data && data.prs ? data.prs[exId] : null;
@@ -2595,11 +2658,21 @@ function updateLastNoteDisplay(exId, rec){
 }
 
 // last session and personal record as two small chips under the exercise name
-function lastNoteChips(rec, pr, ex){
+function lastNoteChips(rec, pr, ex, live){
   const last = formatLastNote(rec);
   const hasLast = last.startsWith('לאחרונה');
   let html = '';
-  const next = ex ? nextWeightSuggestion(ex, rec) : null;
+  const next = live ? null : ex ? nextWeightSuggestion(ex, rec) : null;
+  if (live && live.nextSet){
+    const n = live.nextSet;
+    const cls = n.kind === 'up' ? ' up' : n.kind === 'down' ? ' down' : '';
+    const icon = n.kind === 'up' ? ic('up') + ' ' : n.kind === 'down' ? ic('down') + ' ' : '';
+    html += `<span class="chip next${cls}">${icon}סט הבא: ${formatWeight(n.weight)} · ${n.why}</span>`;
+  } else if (live && live.nextTime){
+    const n = live.nextTime;
+    const cls = n.kind === 'up' ? ' up' : n.kind === 'down' ? ' down' : '';
+    html += `<span class="chip next${cls}">✓ בפעם הבאה: ${formatWeight(n.weight)}${n.kind === 'up' ? ' — הגעת לראש הטווח' : n.kind === 'down' ? ' — היה כבד מדי' : ''}</span>`;
+  }
   if (next){
     if (next.kind === 'down'){
       html += `<span class="chip next down">${ic('down')} הבא: ${formatWeight(next.weight)} · כבד מדי בפעם הקודמת</span>`;
@@ -2786,8 +2859,7 @@ async function saveIndividualSet(btn, confirmed = false){
       btn.classList.add('saved');
       let isPR = false;
       if (!warmup) isPR = await updatePRIfNeeded(currentDayKey, exId, weight, reps, dateStr);
-      const rec = await persistSetToLast(exId, setIdx, reps, weight, warmup);
-      updateLastNoteDisplay(exId, rec);
+      await refreshLiveHints(exId);
       showToast(isPR ? '🏆 שיא אישי חדש!' : filled ? 'נשמר כמו בפעם הקודמת ✓' : 'הסט נשמר ✓');
       if (!timerRunning) startTimer(restSecondsFor(exId) || selectedPreset);
     } else {
@@ -4550,6 +4622,7 @@ async function undoSavedSet(dayKey, exId, setIdx, btn){
   showToast(ok ? 'הסט נמחק' : 'המחיקה נכשלה, נסה שוב');
   if (ok){
     refreshExerciseCard(exId, setIdx);
+    await refreshLiveHints(exId);
     if (typeof updateLiveVolumeDisplay === 'function') updateLiveVolumeDisplay();
   }
 }
@@ -5047,7 +5120,7 @@ document.getElementById('coachOverlay').addEventListener('click', (e) => {
 });
 
 // bump on every change that reaches the phone, and add a line to "History of changes" in CLAUDE.md
-const APP_VERSION = '1.19';
+const APP_VERSION = '1.20';
 const APP_VERSION_DATE = '30.9.2026';
 document.getElementById('appVersion').textContent = `גרסה ${APP_VERSION} · ${APP_VERSION_DATE}`;
 
