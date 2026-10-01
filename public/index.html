@@ -1597,7 +1597,7 @@ const DEFAULT_DAYS = [
       { id: 'goblet_squat', name: 'גובלט סקוואט (משקולת יד/קטלבל)', target: '8 עד 12 חזרות · RIR 2 · מנוחה 2 דק׳' },
       { id: 'split_squat', name: 'ספליט סקוואט או הליכת מספריים', target: '8 עד 12 חזרות · RIR 1 עד 2 · מנוחה 2 דק׳' },
       { id: 'leg_curl_standing_cable', name: 'כפיפת ברך בכבל בעמידה', target: '10 עד 15 חזרות · RIR 0 עד 1 · מנוחה 90 שנ׳' },
-      { id: 'calf_seated', name: 'תאומים בעמידה', target: '12 עד 20 חזרות · RIR 0 עד 1 · מנוחה 60 עד 90 שנ׳' },
+      { id: 'calf_seated', name: 'תאומים בישיבה', target: '12 עד 20 חזרות · RIR 0 עד 1 · מנוחה 60 עד 90 שנ׳' },
       { id: 'abs_cable', name: 'בטן (כבל)', target: '10 עד 15 חזרות · RIR 1 · מנוחה 60 שנ׳' },
     ]
   },
@@ -1670,6 +1670,9 @@ function defaultBarFor(name){
 async function applyBarDefaults(){
   let changed = false;
   DAYS.forEach(d => d.exercises.forEach(ex => {
+    // plan typo: the second calf exercise (תחתון ב) was meant to be seated — knee bent works the soleus,
+    // standing (תחתון א) works the gastrocnemius. Renamed only if the user never changed the name; history keeps its id.
+    if (ex.id === 'calf_seated' && ex.name === 'תאומים בעמידה'){ ex.name = 'תאומים בישיבה'; changed = true; }
     if (ex.bar !== undefined) return;
     const b = defaultBarFor(ex.name);
     if (b !== undefined){ ex.bar = b; changed = true; }
@@ -5120,8 +5123,8 @@ document.getElementById('coachOverlay').addEventListener('click', (e) => {
 });
 
 // bump on every change that reaches the phone, and add a line to "History of changes" in CLAUDE.md
-const APP_VERSION = '1.20';
-const APP_VERSION_DATE = '30.9.2026';
+const APP_VERSION = '1.21';
+const APP_VERSION_DATE = '1.10.2026';
 document.getElementById('appVersion').textContent = `גרסה ${APP_VERSION} · ${APP_VERSION_DATE}`;
 
 async function init(){
