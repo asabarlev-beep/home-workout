@@ -1680,6 +1680,23 @@ async function applyBarDefaults(){
   if (changed) await saveOverrides();
 }
 const barOf = (ex) => (ex && ex.bar > 0) ? ex.bar : 0;
+
+/* ---------------- a pair of dumbbells ----------------
+   The user logs the weight of ONE dumbbell (the number on it). Exercises done with two dumbbells show
+   "× 2 · total" and count double in volume. Detected from the name (plural "משקולות", hammer curls);
+   one dumbbell / kettlebell (goblet, sumo, "משקולת" singular) stays ×1. ex.pair (true/false), set in
+   edit mode, overrides the guess. */
+function guessPair(name){
+  const n = String(name || '');
+  if (/גובלט|קטלבל|goblet|kettlebell/i.test(n) && !/משקולות/.test(n)) return false;
+  return /משקולות|פטיש|dumbbells|hammer/i.test(n);
+}
+const isPair = (ex) => !!ex && (ex.pair !== undefined ? !!ex.pair : guessPair(ex.name));
+const loadFactor = (ex) => isPair(ex) ? 2 : 1;
+function pairChipText(ex, weightKg){
+  if (!isPair(ex)) return '';
+  return `✋✋ משקל של משקולת אחת × 2${weightKg != null && weightKg > 0 ? ` · סה״כ ${formatWeight(weightKg * 2)}` : ''}`;
+}
 function exById(exId){ return (DAYS.find(d => d.key === currentDayKey)?.exercises || []).find(e => e.id === exId); }
 function barChipText(ex, weightKg){
   const bar = barOf(ex);
@@ -1848,7 +1865,7 @@ function computeLiveVolume(){
       const reps = repsInput.value ? Number(repsInput.value) : null;
       const weight = weightInput.value ? Number(weightInput.value) : null;
       const warmup = isSetWarmup(ex.id, i);
-      if (!warmup && reps && weight) vol += reps * weight;
+      if (!warmup && reps && weight) vol += reps * weight * loadFactor(ex);
     }
   });
   return Math.round(vol);
@@ -1924,6 +1941,7 @@ async function renderExercises(){
           ${editMode ? `
             <button class="icon-btn" data-action="edit" data-ex="${ex.id}" title="ערוך שם ויעד" aria-label="ערוך">${ic('pencil')}</button>
             <button class="icon-btn bar-btn" data-action="bar" data-ex="${ex.id}" title="משקל המוט — לחיצה מחליפה" aria-label="משקל המוט">${barOf(ex) ? `מוט ${barOf(ex)}` : 'מוט —'}</button>
+            ${isDumbbellExercise(ex) ? `<button class="icon-btn bar-btn" data-action="pair" data-ex="${ex.id}" title="משקולת אחת או שתיים" aria-label="משקולת אחת או שתיים">${isPair(ex) ? 'משקולות ×2' : 'משקולת ×1'}</button>` : ''}
             <button class="icon-btn" data-action="up" data-ex="${ex.id}" title="הזז למעלה" aria-label="הזז למעלה">${ic('up')}</button>
             <button class="icon-btn" data-action="down" data-ex="${ex.id}" title="הזז למטה" aria-label="הזז למטה">${ic('down')}</button>
             <button class="icon-btn danger" data-action="del" data-ex="${ex.id}" title="הסר תרגיל" aria-label="הסר תרגיל">${ic('trash')}</button>
@@ -1993,8 +2011,11 @@ async function renderExercises(){
       const saveBtn = list.querySelector(`.set-save-btn[data-ex="${exId}"][data-set="${setIdx}"]`);
       if (saveBtn) saveBtn.classList.remove('saved');
       if (inp.getAttribute('data-field') === 'weight'){
+        const typed = inp.value ? displayUnitToKg(Number(inp.value)) : null;
         const chip = list.querySelector(`[data-bar-chip="${exId}"]`);
-        if (chip) chip.textContent = barChipText(exById(exId), inp.value ? displayUnitToKg(Number(inp.value)) : null);
+        if (chip) chip.textContent = barChipText(exById(exId), typed);
+        const pchip = list.querySelector(`[data-pair-chip="${exId}"]`);
+        if (pchip) pchip.textContent = pairChipText(exById(exId), typed);
       }
       updateLiveVolumeDisplay();
       autoStartWorkoutClock();
@@ -2034,6 +2055,7 @@ async function renderExercises(){
       else if (action === 'down') moveExercise(currentDayKey, exId, 1);
       else if (action === 'del') removeExercise(currentDayKey, exId);
       else if (action === 'bar') cycleBar(currentDayKey, exId);
+      else if (action === 'pair') togglePair(currentDayKey, exId);
     });
   });
 
@@ -2329,6 +2351,14 @@ async function addExercise(dayKey, name, target, muscle){
   await saveOverrides();
   renderExercises();
   showToast('התרגיל נוסף ✓');
+}
+
+async function togglePair(dayKey, exId){
+  const ex = DAYS.find(d => d.key === dayKey).exercises.find(e => e.id === exId);
+  ex.pair = !isPair(ex);
+  await saveOverrides();
+  renderExercises();
+  showToast(ex.pair ? 'שתי משקולות — רושמים משקל של אחת' : 'משקולת אחת');
 }
 
 async function cycleBar(dayKey, exId){
@@ -2686,6 +2716,7 @@ function lastNoteChips(rec, pr, ex, live){
   }
   html += `<span class="chip${hasLast ? '' : ' empty'}">${last}</span>`;
   if (ex && barOf(ex)) html += `<span class="chip bar" data-bar-chip="${ex.id}">${barChipText(ex, null)}</span>`;
+  if (ex && isPair(ex)) html += `<span class="chip bar" data-pair-chip="${ex.id}">${pairChipText(ex, null)}</span>`;
   if (pr) html += `<span class="chip pr">${ic('trophy')} שיא ${pr.reps ?? '-'}×${formatWeight(pr.weight)}</span>`;
   const warm = ex ? warmupPlan(ex, rec) : null;
   if (warm){
@@ -4317,7 +4348,7 @@ function computeSessionVolume(session, day){
     if (!rec || !rec.sets) return;
     rec.sets.forEach(s => {
       if (!s.warmup && s.reps !== null && s.reps !== undefined && s.weight !== null && s.weight !== undefined){
-        vol += s.reps * kgToDisplayUnit(s.weight);
+        vol += s.reps * kgToDisplayUnit(s.weight) * loadFactor(ex);
       }
     });
   });
@@ -5123,8 +5154,8 @@ document.getElementById('coachOverlay').addEventListener('click', (e) => {
 });
 
 // bump on every change that reaches the phone, and add a line to "History of changes" in CLAUDE.md
-const APP_VERSION = '1.21';
-const APP_VERSION_DATE = '1.10.2026';
+const APP_VERSION = '1.22';
+const APP_VERSION_DATE = '3.10.2026';
 document.getElementById('appVersion').textContent = `גרסה ${APP_VERSION} · ${APP_VERSION_DATE}`;
 
 async function init(){
