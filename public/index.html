@@ -986,6 +986,36 @@
     .nut-entry-extra{ gap:4px; }
     .nut-entry-extra span{ padding:1px 6px; font-size:11px; }
   }
+  /* v1.25: totals with goal bars, meal groups, compact rows, folded calorie coach */
+  .nut-totals{ padding:12px 18px 14px; }
+  .nut-total-item{ text-align:right; padding:10px 10px 11px; display:flex; flex-direction:column; gap:3px; min-width:0; }
+  .nut-total-item .nut-total-label{ margin:0; font-size:12px; white-space:nowrap; }
+  .nut-total-item .nut-total-val{ font-size:18px; white-space:nowrap; }
+  .nut-total-val small{ font-size:11.5px; font-weight:600; color:var(--muted); }
+  .nut-total-track{ display:block; height:5px; border-radius:99px; background:var(--surface2); overflow:hidden; margin-top:4px; }
+  .nut-total-track i{ display:block; height:100%; border-radius:99px; background:var(--accent); }
+  .nut-meal-group{ background:var(--bg); border-radius:16px; padding:4px 12px; margin-bottom:10px; }
+  .nut-meal-head{ display:flex; justify-content:space-between; align-items:center; gap:8px; padding:9px 0 7px; border-bottom:1px solid var(--line); }
+  .nut-meal-name{ font-weight:800; font-size:14.5px; }
+  .nut-meal-sum{ font-size:12.5px; color:var(--muted); white-space:nowrap; }
+  .nut-meal-sum b{ color:#c9ec4a; font-weight:700; }
+  .nut-row{ display:flex; align-items:center; gap:8px; padding:9px 0; }
+  .nut-row + .nut-row{ border-top:1px solid rgba(255,255,255,.04); }
+  .nut-row-text{ flex:1; min-width:0; }
+  .nut-row-name{ font-size:15px; font-weight:700; line-height:1.3; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .nut-row-sub{ font-size:12px; color:var(--muted); margin-top:1px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .nut-row-vals{ flex:0 0 auto; text-align:left; line-height:1.2; }
+  .nut-row-vals b{ display:block; color:var(--accent); font-size:16px; font-weight:800; }
+  .nut-row-vals b small{ font-size:11px; font-weight:600; color:#c9ec4a; }
+  .nut-row-vals span{ font-size:11.5px; color:var(--muted); white-space:nowrap; }
+
+  .cal-coach:has(.cc-mini){ padding:0; }
+  .cc-mini summary{ list-style:none; display:flex; justify-content:space-between; align-items:center; gap:8px; padding:13px 14px; cursor:pointer; font-size:14px; font-weight:700; }
+  .cc-mini summary::-webkit-details-marker{ display:none; }
+  .cc-mini-need{ font-size:12.5px; font-weight:500; color:var(--muted); }
+  .cc-mini[open] summary{ padding-bottom:6px; }
+  .cc-mini .cc-progress, .cc-mini .cc-note{ padding:0 14px; }
+  .cc-mini .cc-note{ padding-bottom:13px; }
   .nut-entry-del{ flex:0 0 auto; background:none; border:none; color:var(--muted); opacity:.6; font-size:14px; padding:4px 6px; cursor:pointer; }
 
   /* ---------- premium pass: line icons, a status card, quieter accent (green only for done / primary) ---------- */
@@ -1174,7 +1204,7 @@
   .vol-fill{ height:100%; border-radius:9px; }
   .vol-track i{ position:absolute; top:-3px; bottom:-3px; width:1px; background:var(--muted); opacity:.55; }
   .vol-legend{ color:var(--muted); font-size:12px; line-height:1.5; margin-top:8px; }
-  .cal-coach{ margin:8px 18px 12px; background:var(--bg); border-radius:16px; padding:14px; }
+  .cal-coach{ margin:0 18px 28px; background:var(--bg); border-radius:16px; padding:14px; }
   .cal-coach:empty{ display:none; }
   .cal-coach .cc-title{ font-size:14px; font-weight:800; margin-bottom:10px; }
   .cal-coach .cc-stats{ display:grid; grid-template-columns:repeat(3,1fr); gap:6px; margin-bottom:12px; }
@@ -1466,7 +1496,6 @@
     </div>
     <div class="nut-protein" id="nutProtein"></div>
     <div class="nut-totals" id="nutTotals"></div>
-    <div class="cal-coach" id="calCoach"></div>
     <div style="padding:0 18px;">
       <div class="nut-search">
         <input type="text" id="nutNameInput" placeholder="מה אכלת? למשל קוטג'" autocomplete="off">
@@ -1513,6 +1542,7 @@
       </details>
     </div>
     <div class="history-body" id="nutEntryList"></div>
+    <div class="cal-coach" id="calCoach"></div>
   </div>
 </div>
 
@@ -4112,8 +4142,9 @@ async function renderCalorieCoach(){
     const lines = [];
     lines.push(needDays ? `רישום אוכל: <b>${c.loggedDays} מתוך ${CAL_MIN_DAYS}</b> ימים מלאים — עוד ${needDays}` : `רישום אוכל: <b>${c.loggedDays} ימים ✓</b> · ממוצע ${num(c.intake)} קלוריות`);
     lines.push(needW ? `שקילות: <b>${c.weighIns} מתוך ${CAL_MIN_WEIGHINS}</b> — עוד ${needW}` : c.span < 7 ? `שקילות: <b>${c.weighIns} ✓</b>, אבל צריך פער של שבוע בין הראשונה לאחרונה` : `שקילות: <b>${c.weighIns} ✓</b>`);
-    box.innerHTML = `${title}<div class="cc-progress">כדי לחשב כמה קלוריות אתה צריך, האפליקציה משווה בין מה שאכלת לבין השינוי במשקל.<br>${lines.join('<br>')}</div>
-      <div class="cc-note">יום עם פחות מ-${num(CAL_MIN_DAY)} קלוריות לא נספר, כי כנראה לא כל האוכל נרשם. היום עצמו נספר רק מחר.</div>`;
+    const short = [needDays && `עוד ${needDays} ימי רישום`, needW && `עוד ${needW} שקילות`].filter(Boolean).join(' ו') || 'עוד שבוע של שקילות';
+    box.innerHTML = `<details class="cc-mini"><summary><span>🔥 מעקב קלוריות</span><span class="cc-mini-need">${short}</span></summary><div class="cc-progress">כדי לחשב כמה קלוריות אתה צריך, האפליקציה משווה בין מה שאכלת לבין השינוי במשקל.<br>${lines.join('<br>')}</div>
+      <div class="cc-note">יום עם פחות מ-${num(CAL_MIN_DAY)} קלוריות לא נספר, כי כנראה לא כל האוכל נרשם. היום עצמו נספר רק מחר.</div></details>`;
     return;
   }
 
@@ -4168,11 +4199,17 @@ async function renderNutritionPanel(){
   renderMeals();
 
   const num = (v) => Math.round(v).toLocaleString('he-IL');
-  const tile = (val, goalVal, label) => `
-    <div class="nut-total-item"><span class="nut-total-val">${num(val)}</span>
-      <span class="nut-total-label">${label}${goalVal ? ` · יעד ${num(goalVal)}` : ''}</span></div>`;
+  const tile = (val, goalVal, label) => {
+    const pct = goalVal ? Math.min(100, Math.round(val / goalVal * 100)) : 0;
+    const over = goalVal && val > goalVal * 1.05;
+    return `<div class="nut-total-item">
+      <span class="nut-total-label">${label}</span>
+      <span class="nut-total-val">${num(val)}${goalVal ? `<small> / ${num(goalVal)}</small>` : ''}</span>
+      ${goalVal ? `<span class="nut-total-track"><i style="width:${pct}%;${over ? 'background:#ffb347' : ''}"></i></span>` : ''}
+    </div>`;
+  };
   document.getElementById('nutTotals').innerHTML =
-    tile(totals.calories, goal.calories, 'קלוריות') + tile(totals.carbs, goal.carbs, 'פחמימות (ג׳)') + tile(totals.fat, goal.fat, 'שומן (ג׳)');
+    tile(totals.calories, goal.calories, 'קלוריות') + tile(totals.carbs, goal.carbs, 'פחמימות ג׳') + tile(totals.fat, goal.fat, 'שומן ג׳');
 
   document.getElementById('goalCalInput').value = goal.calories ?? '';
   document.getElementById('goalProInput').value = goal.protein ?? '';
@@ -4184,31 +4221,32 @@ async function renderNutritionPanel(){
     list.innerHTML = '<div class="history-empty">עדיין לא נרשם אוכל ליום זה</div>';
     return;
   }
-  // newest first; each row: name, portion and time, protein badge, then the other values in plain words
-  list.innerHTML = `<div class="nut-list-title">${isoDate(nutritionDate) === isoDate(new Date()) ? 'היום' : displayDateHe(nutritionDate)} · ${entries.length} פריטים</div>`;
-  entries.map((e, idx) => ({ e, idx })).reverse().forEach(({ e, idx }) => {
-    const [title, ...rest] = String(e.name).split(' · ');
-    const sub = [rest.join(' · '), e.time].filter(Boolean).join(' · ');
-    const extra = [
-      `${Math.round(e.calories || 0)} קלוריות`,
-      `פחמימות ${Math.round(e.carbs || 0)}`,
-      `שומן ${Math.round(e.fat || 0)}`,
-    ].map(t => `<span>${t}</span>`).join('');
-    const row = document.createElement('div');
-    row.className = 'nut-entry';
-    row.innerHTML = `
-      <div class="nut-entry-top">
-        <div class="nut-entry-text">
-          <div class="nut-entry-name"><bdi>${esc(title)}</bdi></div>
-          <div class="nut-entry-sub">${esc(sub)}</div>
-        </div>
-        <div class="nut-entry-protein"><b>${round1(e.protein)}</b><span>ג׳ חלבון</span></div>
-      </div>
-      <div class="nut-entry-bottom">
-        <div class="nut-entry-extra">${extra}</div>
-        <button class="nut-entry-del" data-nutdel="${idx}" title="מחק" aria-label="מחק">${ic('trash')}</button>
-      </div>`;
-    list.appendChild(row);
+  // grouped by meal (from the time it was logged), each food on one compact row
+  const isToday = isoDate(nutritionDate) === isoDate(new Date());
+  list.innerHTML = `<div class="nut-list-title">${isToday ? 'היום' : displayDateHe(nutritionDate)} · ${entries.length} פריטים</div>`;
+  const groups = new Map();
+  entries.forEach((e, idx) => {
+    const meal = mealOfTime(e.time);
+    if (!groups.has(meal.key)) groups.set(meal.key, { ...meal, items: [] });
+    groups.get(meal.key).items.push({ e, idx });
+  });
+  [...groups.values()].sort((a, b) => a.order - b.order).forEach(g => {
+    const cal = g.items.reduce((t, { e }) => t + (Number(e.calories) || 0), 0);
+    const pro = g.items.reduce((t, { e }) => t + (Number(e.protein) || 0), 0);
+    const box = document.createElement('div');
+    box.className = 'nut-meal-group';
+    box.innerHTML = `<div class="nut-meal-head"><span class="nut-meal-name">${g.icon} ${g.label}</span>
+        <span class="nut-meal-sum">${num(cal)} קל׳ · <b>${round1(pro)} ג׳ חלבון</b></span></div>` +
+      g.items.map(({ e, idx }) => {
+        const [title, ...rest] = String(e.name).split(' · ');
+        const sub = [rest.join(' · '), e.time, `פחמ׳ ${Math.round(e.carbs || 0)}`, `שומן ${Math.round(e.fat || 0)}`].filter(Boolean).join(' · ');
+        return `<div class="nut-row">
+          <div class="nut-row-text"><div class="nut-row-name"><bdi>${esc(title)}</bdi></div><div class="nut-row-sub">${esc(sub)}</div></div>
+          <div class="nut-row-vals"><b>${round1(e.protein)}<small> ג׳</small></b><span>${Math.round(e.calories || 0)} קל׳</span></div>
+          <button class="nut-entry-del" data-nutdel="${idx}" title="מחק" aria-label="מחק">${ic('trash')}</button>
+        </div>`;
+      }).join('');
+    list.appendChild(box);
   });
   list.querySelectorAll('[data-nutdel]').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -4216,6 +4254,16 @@ async function renderNutritionPanel(){
       showConfirm('למחוק פריט?', 'הפריט יימחק מיומן התזונה.', () => deleteNutritionEntry(delIdx), 'מחק');
     });
   });
+}
+
+// meal from the logged time "HH:MM"; entries without a time go last
+function mealOfTime(t){
+  const h = Number(String(t || '').split(':')[0]);
+  if (!String(t || '').includes(':') || isNaN(h)) return { key: 'none', label: 'בלי שעה', icon: '🍽', order: 9 };
+  if (h >= 4 && h < 11) return { key: 'breakfast', label: 'בוקר', icon: '☀️', order: 1 };
+  if (h >= 11 && h < 16) return { key: 'lunch', label: 'צהריים', icon: '🍲', order: 2 };
+  if (h >= 16 && h < 21) return { key: 'dinner', label: 'ערב', icon: '🌙', order: 3 };
+  return { key: 'night', label: 'לילה', icon: '🌌', order: 4 };
 }
 
 async function openNutrition(){
@@ -5244,7 +5292,7 @@ document.getElementById('coachOverlay').addEventListener('click', (e) => {
 });
 
 // bump on every change that reaches the phone, and add a line to "History of changes" in CLAUDE.md
-const APP_VERSION = '1.24';
+const APP_VERSION = '1.25';
 const APP_VERSION_DATE = '5.10.2026';
 document.getElementById('appVersion').textContent = `גרסה ${APP_VERSION} · ${APP_VERSION_DATE}`;
 
