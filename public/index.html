@@ -931,6 +931,10 @@
   .nut-portion-btns button.active{ background:var(--accent); color:#12151a; }
   .nut-portion-btns input{ flex:1 0 64px; min-width:0; background:var(--bg); border:1px solid transparent; color:var(--text); border-radius:10px; padding:8px; font-size:15px; text-align:center; }
   .nut-portion-btns button{ direction:ltr; }
+  .nut-custom{ margin-top:8px; }
+  .nut-custom .nut-portion-btns button{ direction:rtl; }
+  .nut-custom-calc{ font-size:13px; color:var(--accent); margin-top:6px; min-height:0; }
+  .nut-custom-calc:empty{ display:none; }
   .nut-fields{ display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:6px; margin-top:8px; }
   .nut-field{ display:flex; flex-direction:column; gap:3px; min-width:0; }
   .nut-field span{ font-size:11.5px; color:var(--muted); text-align:center; white-space:nowrap; }
@@ -1477,6 +1481,15 @@
           <button type="button" data-q="2">2</button>
           <input type="number" id="nutGramsInput" inputmode="numeric" min="1" placeholder="גרם">
         </div>
+      </div>
+      <div class="nut-custom" id="nutCustom" hidden>
+        <div class="nut-portion-label">מאכל חדש · הערכים שתקליד הם:</div>
+        <div class="nut-portion-btns">
+          <button type="button" data-basis="serving" class="active">למנה</button>
+          <button type="button" data-basis="100">ל־100 ג'</button>
+          <input type="number" id="nutCustomGrams" inputmode="numeric" min="1" placeholder="כמה גרם?" style="display:none;">
+        </div>
+        <div class="nut-custom-calc" id="nutCustomCalc"></div>
       </div>
       <div class="nut-fields">
         <label class="nut-field"><span>חלבון</span><input type="number" inputmode="decimal" id="nutProInput" placeholder="0"></label>
@@ -3689,20 +3702,40 @@ async function addNutritionEntry(){
     showToast('הכנס שם למאכל');
     return;
   }
-  const entry = {
-    name: pickedFood ? `${name} · ${portionText()}` : name,
+  const typed = {
     calories: calInput.value ? Number(calInput.value) : 0,
     protein: proInput.value ? Number(proInput.value) : 0,
     carbs: carbInput.value ? Number(carbInput.value) : 0,
     fat: fatInput.value ? Number(fatInput.value) : 0,
+  };
+  const isCustom = !pickedFood && !FOOD_LIST.some(f => f.name === name);
+  const per100 = isCustom && customBasis === '100';
+  const grams = per100 ? customGrams() : null;
+  if (per100 && !grams){
+    showToast('כמה גרם אכלת? הקלד גרמים');
+    document.getElementById('nutCustomGrams').focus();
+    return;
+  }
+  const factor = per100 ? grams / 100 : 1;
+  const entry = {
+    name: pickedFood ? `${name} · ${portionText()}` : (per100 ? `${name} · ${grams} ג'` : name),
+    calories: Math.round(typed.calories * factor),
+    protein: round1(typed.protein * factor),
+    carbs: round1(typed.carbs * factor),
+    fat: round1(typed.fat * factor),
     time: new Date().toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' })
   };
   // typed by hand with values and not in the food list: remember it for next time
-  if (!pickedFood && (entry.calories || entry.protein) && !FOOD_LIST.some(f => f.name === name)){
-    await saveMyFood({ name, calories: entry.calories, protein: entry.protein, carbs: entry.carbs, fat: entry.fat });
+  // (per 100 g it is saved like the built-in foods, so next time you can pick grams)
+  if (isCustom && (typed.calories || typed.protein)){
+    await saveMyFood(per100
+      ? { name, unit: "100 ג'", grams: 100, ...typed }
+      : { name, calories: entry.calories, protein: entry.protein, carbs: entry.carbs, fat: entry.fat });
   }
   await logNutritionEntry(entry);
   clearFoodPick();
+  document.getElementById('nutCustomGrams').value = '';
+  renderCustomFood();
   nameInput.value = ''; calInput.value = ''; proInput.value = ''; carbInput.value = ''; fatInput.value = '';
 }
 
@@ -3741,7 +3774,7 @@ async function loadMyFoods(){
 }
 
 async function saveMyFood(food){
-  myFoods = [{ ...food, unit: 'מנה', grams: null }, ...myFoods.filter(f => f.name !== food.name)].slice(0, 60);
+  myFoods = [{ ...food, unit: food.unit || 'מנה', grams: food.grams || null }, ...myFoods.filter(f => f.name !== food.name)].slice(0, 60);
   try { await window.storage.set('my-foods', JSON.stringify(myFoods), false); } catch (e) {}
 }
 
@@ -3799,6 +3832,7 @@ function pickFood(food){
   document.getElementById('nutGramsInput').style.display = food.grams ? '' : 'none';
   document.getElementById('nutPortion').style.display = '';
   renderFoodSuggestions();
+  renderCustomFood();
   applyFoodPortion();
 }
 
@@ -3808,9 +3842,42 @@ function clearFoodPick(){
   document.getElementById('nutSuggest').innerHTML = '';
 }
 
+/* a food that is not in the list: values per serving, or per 100 g + grams eaten */
+let customBasis = 'serving';
+
+function customGrams(){
+  const g = Math.round(Number(document.getElementById('nutCustomGrams').value));
+  return g > 0 ? g : null;
+}
+
+function renderCustomFood(){
+  const name = document.getElementById('nutNameInput').value.trim();
+  const show = !pickedFood && name.length >= 2 && !FOOD_LIST.some(f => f.name === name);
+  const box = document.getElementById('nutCustom');
+  box.hidden = !show;
+  if (!show) return;
+  box.querySelectorAll('[data-basis]').forEach(b => b.classList.toggle('active', b.getAttribute('data-basis') === customBasis));
+  const gInput = document.getElementById('nutCustomGrams');
+  gInput.style.display = customBasis === '100' ? '' : 'none';
+  const calc = document.getElementById('nutCustomCalc');
+  const g = customGrams();
+  if (customBasis !== '100' || !g){ calc.textContent = ''; return; }
+  const v = id => Number(document.getElementById(id).value) || 0;
+  calc.textContent = `יירשם ל־${g} ג': ${Math.round(v('nutCalInput') * g / 100)} קל׳ · ${round1(v('nutProInput') * g / 100)} ג' חלבון`;
+}
+
+document.querySelectorAll('#nutCustom [data-basis]').forEach(btn => btn.addEventListener('click', () => {
+  customBasis = btn.getAttribute('data-basis');
+  renderCustomFood();
+  if (customBasis === '100' && !customGrams()) document.getElementById('nutCustomGrams').focus();
+}));
+document.getElementById('nutCustomGrams').addEventListener('input', renderCustomFood);
+['nutCalInput', 'nutProInput'].forEach(id => document.getElementById(id).addEventListener('input', renderCustomFood));
+
 document.getElementById('nutNameInput').addEventListener('input', () => {
   if (pickedFood) clearFoodPick();
   renderFoodSuggestions();
+  renderCustomFood();
 });
 document.querySelectorAll('#nutPortion [data-q]').forEach(btn => btn.addEventListener('click', () => {
   pickedQty = Number(btn.getAttribute('data-q'));
@@ -5177,7 +5244,7 @@ document.getElementById('coachOverlay').addEventListener('click', (e) => {
 });
 
 // bump on every change that reaches the phone, and add a line to "History of changes" in CLAUDE.md
-const APP_VERSION = '1.23';
+const APP_VERSION = '1.24';
 const APP_VERSION_DATE = '5.10.2026';
 document.getElementById('appVersion').textContent = `גרסה ${APP_VERSION} · ${APP_VERSION_DATE}`;
 
