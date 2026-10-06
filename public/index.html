@@ -3688,6 +3688,15 @@ async function addBodyWeightEntry(rawVal){
     return;
   }
   errEl.textContent = '';
+  // a weigh-in for today after noon runs 1–2 kg above the morning one and skews the 7-day average
+  if (bwDayOffset === 0 && new Date().getHours() >= 12){
+    showConfirm('שקילת ערב?', 'אחרי הצהריים המשקל גבוה בדרך כלל ב־1–2 ק״ג מהבוקר, וזה מעוות את הממוצע. עדיף להישקל מחר בבוקר.', () => saveBodyWeightValue(val), 'שמור בכל זאת');
+    return;
+  }
+  return saveBodyWeightValue(val);
+}
+
+async function saveBodyWeightValue(val){
   const weightKg = displayUnitToKg(val);
   const dateStr = bwDateStr(bwDayOffset);
   let log = await loadBodyWeightLog();
@@ -5497,7 +5506,7 @@ document.getElementById('coachOverlay').addEventListener('click', (e) => {
 });
 
 // bump on every change that reaches the phone, and add a line to "History of changes" in CLAUDE.md
-const APP_VERSION = '1.27';
+const APP_VERSION = '1.28';
 const APP_VERSION_DATE = '6.10.2026';
 document.getElementById('appVersion').textContent = `גרסה ${APP_VERSION} · ${APP_VERSION_DATE}`;
 
