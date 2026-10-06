@@ -1262,6 +1262,57 @@
     .fab-row{ bottom:12px; right:10px; }
     body{ padding-bottom:90px; }
   }
+
+  /* ---------- v1.26: focused cards, quieter cards, today strip, bottom nav ---------- */
+  .card{ scroll-margin-top:12px; transition:padding .2s; }
+  .card-summary{ display:none; }
+  .card.collapsed{ padding-top:12px; padding-bottom:12px; cursor:pointer; }
+  .card.collapsed .card-head{ margin-bottom:2px; }
+  .card.collapsed > :not(.card-head):not(.card-summary){ display:none !important; }
+  .card.collapsed .card-summary{ display:flex; align-items:center; gap:6px; font-size:13px; color:var(--muted); overflow:hidden; white-space:nowrap; }
+  .card.collapsed .card-summary span{ overflow:hidden; text-overflow:ellipsis; }
+  .card.collapsed .card-head .ex-target, .card.collapsed .card-head-actions{ display:none; }
+  .card.done.collapsed{ background:#1a1f27; }
+  .card.done.collapsed .ex-name{ color:var(--muted); }
+  .card.done .card-summary{ color:#c9ec4a; }
+  .cs-check{ flex:0 0 auto; width:20px; height:20px; border-radius:50%; background:var(--accent); color:#12151a; display:inline-flex; align-items:center; justify-content:center; }
+  .cs-check .ic{ width:13px; height:13px; stroke-width:3; }
+  .ex-tools-gap{ flex:1; }
+  .ex-stopwatch-row .video-btn{ background:transparent; border:none; padding:0; width:36px; height:36px; justify-content:center; color:#aab2bf; }
+  .ex-stopwatch-row .video-btn .vlabel{ display:none; }
+  .ex-stopwatch-row .video-btn.has-video{ color:var(--accent); }
+  .card .ex-note{ display:none; }
+  .card.show-note .ex-note, .card.has-note .ex-note{ display:block; }
+  .card.show-note .ex-note-btn, .card.has-note .ex-note-btn{ color:var(--accent); }
+  .video-row:not(:has(video[style*="block"])){ display:none; }
+
+  #moreBtn{ display:none; }
+  .today-strip{ display:flex; gap:8px; padding:0 18px 10px; }
+  .ts-chip{ flex:1; min-width:0; display:flex; align-items:center; gap:7px; flex-wrap:wrap; background:var(--surface); border:1px solid rgba(255,255,255,.05); color:var(--text); border-radius:14px; padding:9px 11px; font-size:13px; font-family:inherit; cursor:pointer; text-align:right; }
+  .ts-chip .ic{ color:var(--muted); }
+  .ts-chip b{ font-weight:800; }
+  .ts-text{ flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .ts-bar{ flex:0 0 100%; height:4px; border-radius:99px; background:var(--surface2); overflow:hidden; }
+  .ts-bar i{ display:block; height:100%; width:0; border-radius:99px; background:#ffb347; transition:width .3s; }
+  .ts-chip.done .ts-bar i{ background:var(--accent); }
+  .ts-chip.done .ic{ color:var(--accent); }
+  .ts-chip.stale .ic{ color:#ffb347; }
+
+  :root{ --nav-h:62px; }
+  .bottom-nav{ position:fixed; left:0; right:0; bottom:0; z-index:65; display:flex; background:rgba(20,24,31,.97); border-top:1px solid rgba(255,255,255,.06); padding-bottom:env(safe-area-inset-bottom); height:calc(var(--nav-h) + env(safe-area-inset-bottom)); }
+  .bottom-nav button{ flex:1; background:none; border:none; color:#7d8592; font-family:inherit; font-size:11.5px; font-weight:600; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px; cursor:pointer; }
+  .bottom-nav button .ic{ width:22px; height:22px; }
+  .bottom-nav button.active{ color:var(--accent); }
+  .fab-row{ bottom:calc(var(--nav-h) + 12px + env(safe-area-inset-bottom)) !important; }
+  body{ padding-bottom:calc(var(--nav-h) + 90px) !important; }
+  .history-panel{ padding-bottom:calc(var(--nav-h) + env(safe-area-inset-bottom)); }
+  #confirmOverlay .history-panel{ padding-bottom:0; }
+  @media (max-width:300px){
+    :root{ --nav-h:54px; }
+    .today-strip{ padding:0 12px 8px; gap:6px; }
+    .ts-chip{ padding:7px 8px; font-size:12px; }
+    .bottom-nav button span{ font-size:10.5px; }
+  }
 </style>
 </head>
 <body>
@@ -1273,6 +1324,11 @@
     <button class="history-btn icon-only" id="moreBtn" title="עוד" aria-label="עוד"><i data-ic="dots"></i></button>
   </div>
 </header>
+
+<div class="today-strip" id="todayStrip">
+  <button type="button" class="ts-chip" id="tsProtein"><i data-ic="apple"></i><span class="ts-text">חלבון</span><span class="ts-bar"><i></i></span></button>
+  <button type="button" class="ts-chip" id="tsWeight"><i data-ic="scale"></i><span class="ts-text">שקילה</span></button>
+</div>
 
 <!-- status card: where you are in today's workout -->
 <section class="hero">
@@ -1300,6 +1356,13 @@
 <div class="live-volume" id="liveVolume" hidden></div>
 
 <main id="exerciseList"></main>
+
+<nav class="bottom-nav" id="bottomNav">
+  <button type="button" data-nav="workout" class="active"><i data-ic="timer"></i><span>אימון</span></button>
+  <button type="button" data-nav="nutrition"><i data-ic="apple"></i><span>תזונה</span></button>
+  <button type="button" data-nav="weight"><i data-ic="scale"></i><span>משקל</span></button>
+  <button type="button" data-nav="more"><i data-ic="dots"></i><span>עוד</span></button>
+</nav>
 
 <div class="fab-row">
   <button class="fab" id="timerFab"><i data-ic="timer"></i> <span id="timerFabLabel">מנוחה</span></button>
@@ -2002,10 +2065,17 @@ async function renderExercises(){
         <b>${setsFor(day, ex)}</b>
         <button class="icon-btn" data-action="setsplus" data-ex="${ex.id}" aria-label="יותר סטים">+</button>
       </div>` : ''}
+      <div class="card-summary" data-upcoming="${esc(upcomingSummary(setsFor(day, ex), lastForEx))}"></div>
       <div class="ex-stopwatch-row">
         <span class="ex-stopwatch-display" id="exswdisplay-${ex.id}">00:00</span>
         <button class="icon-btn ex-stopwatch-btn" id="exswbtn-${ex.id}" data-ex="${ex.id}" title="סטופר לתרגיל" aria-label="סטופר לתרגיל">${ic('play')}</button>
         <button class="icon-btn ex-stopwatch-reset" data-ex="${ex.id}" title="איפוס סטופר" aria-label="איפוס סטופר">${ic('reset')}</button>
+        <span class="ex-tools-gap"></span>
+        <button class="icon-btn ex-note-btn" data-action="note" data-ex="${ex.id}" title="הערה לתרגיל" aria-label="הערה לתרגיל">${ic('note')}</button>
+        <label class="icon-btn video-btn" id="vbtn-${ex.id}" title="צילום תרגיל" aria-label="צילום תרגיל">
+          ${ic('video')} <span id="vlabel-${ex.id}" class="vlabel">צילום תרגיל</span>
+          <input type="file" accept="video/*" capture="environment" style="display:none" data-video-for="${ex.id}">
+        </label>
       </div>
       <div class="last-note">${lastNoteChips(lastForEx, pr, ex)}</div>
       <table class="sets">
@@ -2016,10 +2086,6 @@ async function renderExercises(){
       </table>
       <textarea class="ex-note" data-ex="${ex.id}" rows="1" placeholder="${lastForEx && lastForEx.note ? esc(lastForEx.note) : 'הערות לתרגיל (אופציונלי)'}"></textarea>
       <div class="video-row">
-        <label class="video-btn" id="vbtn-${ex.id}">
-          ${ic('video')} <span id="vlabel-${ex.id}">צילום תרגיל</span>
-          <input type="file" accept="video/*" capture="environment" style="display:none" data-video-for="${ex.id}">
-        </label>
         <video class="preview" id="vpreview-${ex.id}" style="display:none" controls></video>
       </div>
     `;
@@ -2112,7 +2178,24 @@ async function renderExercises(){
       else if (action === 'pair') togglePair(currentDayKey, exId);
       else if (action === 'setsminus') changeExerciseSets(currentDayKey, exId, -1);
       else if (action === 'setsplus') changeExerciseSets(currentDayKey, exId, 1);
+      else if (action === 'note'){
+        const card = btn.closest('.card');
+        card.classList.toggle('show-note');
+        if (card.classList.contains('show-note')) card.querySelector('.ex-note').focus();
+      }
     });
+  });
+  list.querySelectorAll('.card[data-ex-card]').forEach(card => {
+    const exId = card.getAttribute('data-ex-card');
+    const toggle = (e) => {
+      if (editMode || e.target.closest('button, input, label, textarea')) return;
+      cardManual[exId] = card.classList.contains('collapsed') ? 'open' : 'closed';
+      updateCardFocus();
+    };
+    card.querySelector('.card-head').addEventListener('click', toggle);
+    card.querySelector('.card-summary').addEventListener('click', toggle);
+    const note = card.querySelector('.ex-note');
+    note.addEventListener('input', () => card.classList.toggle('has-note', !!note.value.trim()));
   });
 
   // restore/refresh per-exercise stopwatch displays after (re)render
@@ -2173,6 +2256,65 @@ async function renderExercises(){
   }
 
   await restoreTodaySets(currentDayKey);
+  updateCardFocus();
+}
+
+/* ---------------- focused cards ----------------
+   Only the exercise you are on is open. A finished exercise (every set ✓) folds into one line with
+   what you did, the ones still ahead fold into one line with last time. Tapping a folded card opens it. */
+let cardManual = {};      // exId -> 'open' | 'closed', set by tapping a card
+let cardWasDone = {};     // exId -> done at the last check, to notice the moment it is finished
+let cardFocusDay = null;
+
+function upcomingSummary(n, rec){
+  const sets = rec && (rec.sets || []).filter(st => hasSetData(st) && !st.warmup);
+  const last = sets && sets.length ? sets.map(st => `\u2066${st.reps ?? '?'}×${st.weight != null ? kgToDisplayUnit(st.weight) : '?'}\u2069`).join(' · ') : '';
+  return `${n} סטים${last ? ` · לאחרונה ${last}` : ''}`;
+}
+
+function cardDoneSummary(card){
+  const parts = [];
+  card.querySelectorAll('table.sets tbody tr').forEach(tr => {
+    const r = tr.querySelector('[data-field="reps"]'), w = tr.querySelector('[data-field="weight"]');
+    const reps = r.value || r.placeholder, weight = w.value || w.placeholder;
+    if (tr.querySelector('.set-idx-btn.warmup')) return;
+    parts.push(`<bdi dir="ltr">${esc(reps || '?')}×${esc(weight || '?')}</bdi>`);
+  });
+  return parts.join(' · ');
+}
+
+function updateCardFocus(scrollToNext = false){
+  if (cardFocusDay !== currentDayKey){ cardManual = {}; cardWasDone = {}; cardFocusDay = currentDayKey; }
+  const cards = [...document.querySelectorAll('#exerciseList .card[data-ex-card]')];
+  let activeSet = false, nextCard = null, justDone = false;
+  cards.forEach(card => {
+    const exId = card.getAttribute('data-ex-card');
+    const btns = [...card.querySelectorAll('.set-save-btn')];
+    const saved = btns.filter(b => b.classList.contains('saved')).length;
+    const done = btns.length > 0 && saved === btns.length;
+    if (done && cardWasDone[exId] === false){ delete cardManual[exId]; justDone = true; }
+    cardWasDone[exId] = done;
+    let open;
+    if (editMode) open = true;
+    else if (cardManual[exId]) open = cardManual[exId] === 'open';
+    else if (done) open = false;
+    else open = !activeSet;
+    if (!done && !activeSet && !cardManual[exId]){ activeSet = true; nextCard = card; }
+    if (!done && cardManual[exId] === 'open') activeSet = true;
+    card.classList.toggle('collapsed', !open);
+    card.classList.toggle('done', done);
+    const sum = card.querySelector('.card-summary');
+    sum.innerHTML = done
+      ? `<span class="cs-check">${ic('check')}</span><span>${cardDoneSummary(card)}</span>`
+      : saved
+        ? `<span>${saved}/${btns.length} סטים נשמרו</span>`
+        : `<span>${esc(sum.getAttribute('data-upcoming'))}</span>`;
+    const note = card.querySelector('.ex-note');
+    card.classList.toggle('has-note', !!(note && note.value.trim()));
+  });
+  if (scrollToNext && justDone && nextCard){
+    setTimeout(() => nextCard.scrollIntoView({ behavior: 'smooth', block: 'start' }), 250);
+  }
 }
 
 /* ---------------- sets saved with ✓ survive an app reload ----------------
@@ -2721,6 +2863,9 @@ function prevRecFor(data, exId){
 
 // after a ✓ (or its undo): update the chip and the grey weight of the sets still to do
 async function refreshLiveHints(exId){
+  try { return await refreshLiveHintsInner(exId); } finally { updateCardFocus(true); }
+}
+async function refreshLiveHintsInner(exId){
   const day = DAYS.find(d => d.key === currentDayKey);
   const ex = (day && day.exercises || []).find(e => e.id === exId);
   const card = document.querySelector(`.card[data-ex-card="${exId}"]`);
@@ -3433,6 +3578,63 @@ document.getElementById('openBackupBtn').addEventListener('click', () => {
   document.getElementById('backupOverlay').classList.add('open');
   renderCloudBackups();
 });
+
+/* ---------------- bottom navigation + today strip ---------------- */
+const NAV_SHEETS = { nutrition: 'nutritionOverlay', weight: 'bodyweightOverlay', more: 'moreOverlay' };
+
+function closeAllSheets(){
+  document.querySelectorAll('.history-overlay.open').forEach(o => { if (o.id !== 'confirmOverlay') o.classList.remove('open'); });
+}
+
+function updateNavActive(){
+  let active = 'workout';
+  Object.entries(NAV_SHEETS).forEach(([k, id]) => { if (document.getElementById(id).classList.contains('open')) active = k; });
+  document.querySelectorAll('#bottomNav [data-nav]').forEach(b => b.classList.toggle('active', b.getAttribute('data-nav') === active));
+}
+
+document.querySelectorAll('#bottomNav [data-nav]').forEach(btn => btn.addEventListener('click', () => {
+  const k = btn.getAttribute('data-nav');
+  const wasOpen = NAV_SHEETS[k] && document.getElementById(NAV_SHEETS[k]).classList.contains('open');
+  closeAllSheets();
+  if (k === 'workout' || wasOpen){ window.scrollTo({ top: 0, behavior: 'smooth' }); }
+  else if (k === 'nutrition') openNutrition();
+  else if (k === 'weight') openBodyWeight();
+  else if (k === 'more') document.getElementById('moreOverlay').classList.add('open');
+  updateNavActive();
+}));
+
+// keep the nav and the strip in step with whatever opened or closed a sheet
+const sheetObserver = new MutationObserver((muts) => {
+  updateNavActive();
+  if (muts.some(m => !m.target.classList.contains('open') && ['nutritionOverlay', 'bodyweightOverlay'].includes(m.target.id))) renderTodayStrip();
+});
+document.querySelectorAll('.history-overlay').forEach(o => sheetObserver.observe(o, { attributes: true, attributeFilter: ['class'] }));
+
+async function renderTodayStrip(){
+  try {
+    const today = await loadNutritionDay(new Date());
+    const goal = await loadNutritionGoal();
+    const target = goal.protein || DEFAULT_PROTEIN_GOAL;
+    const pro = (today.entries || []).reduce((t, e) => t + (Number(e.protein) || 0), 0);
+    const pct = Math.min(100, Math.round(pro / target * 100));
+    const pchip = document.getElementById('tsProtein');
+    pchip.querySelector('.ts-text').innerHTML = `חלבון <b>${Math.round(pro)}</b>/${target}`;
+    pchip.querySelector('.ts-bar i').style.width = pct + '%';
+    pchip.classList.toggle('done', pct >= 100);
+
+    const log = await loadBodyWeightLog();
+    const wchip = document.getElementById('tsWeight');
+    const last = log.length ? log[log.length - 1] : null;
+    if (!last){ wchip.querySelector('.ts-text').innerHTML = 'עוד לא נשקלת'; return; }
+    const [d, m, y] = String(last.date).split('.').map(Number);
+    const days = y ? Math.round((new Date().setHours(0,0,0,0) - new Date(y, m - 1, d).getTime()) / 86400000) : null;
+    const when = days === 0 ? 'היום' : days === 1 ? 'אתמול' : days === 2 ? 'שלשום' : days != null ? `לפני ${days} ימ׳` : '';
+    wchip.querySelector('.ts-text').innerHTML = `<b>${formatWeight(last.weight)}</b> · ${when}`;
+    wchip.classList.toggle('stale', days != null && days >= 4);
+  } catch (e) {}
+}
+document.getElementById('tsProtein').addEventListener('click', () => { closeAllSheets(); openNutrition(); });
+document.getElementById('tsWeight').addEventListener('click', () => { closeAllSheets(); openBodyWeight(); });
 
 /* ---------------- body weight tracking ---------------- */
 
@@ -5292,8 +5494,8 @@ document.getElementById('coachOverlay').addEventListener('click', (e) => {
 });
 
 // bump on every change that reaches the phone, and add a line to "History of changes" in CLAUDE.md
-const APP_VERSION = '1.25';
-const APP_VERSION_DATE = '5.10.2026';
+const APP_VERSION = '1.26';
+const APP_VERSION_DATE = '6.10.2026';
 document.getElementById('appVersion').textContent = `גרסה ${APP_VERSION} · ${APP_VERSION_DATE}`;
 
 async function init(){
@@ -5305,6 +5507,7 @@ async function init(){
   renderDeloadBanner();
   selectDay(await pickDefaultDay());
   resetWorkoutClock();
+  renderTodayStrip();
   setTimeout(() => { maybeWeeklyBackup(); }, 4000);
 }
 init();
