@@ -1822,7 +1822,9 @@ const barOf = (ex) => (ex && ex.bar > 0) ? ex.bar : 0;
 function guessPair(name){
   const n = String(name || '');
   if (/גובלט|קטלבל|goblet|kettlebell/i.test(n) && !/משקולות/.test(n)) return false;
-  return /משקולות|פטיש|dumbbells|hammer/i.test(n);
+  if (/משקולות|פטיש|dumbbells|hammer/i.test(n)) return true;
+  // one-leg moves are done with a dumbbell in each hand, unless a barbell is named
+  return /ספליט|מספריים|לאנג׳?|לאנג'|בולגרי|סטפ.?אפ|עלייה על ספסל|חקלאי|split|lunge|step.?up|farmer/i.test(n) && !/מוט|barbell/i.test(n);
 }
 const isPair = (ex) => !!ex && (ex.pair !== undefined ? !!ex.pair : guessPair(ex.name));
 const loadFactor = (ex) => isPair(ex) ? 2 : 1;
@@ -5597,7 +5599,7 @@ document.getElementById('coachOverlay').addEventListener('click', (e) => {
 });
 
 // bump on every change that reaches the phone, and add a line to "History of changes" in CLAUDE.md
-const APP_VERSION = '1.32';
+const APP_VERSION = '1.33';
 const APP_VERSION_DATE = '7.10.2026';
 document.getElementById('appVersion').textContent = `גרסה ${APP_VERSION} · ${APP_VERSION_DATE}`;
 
