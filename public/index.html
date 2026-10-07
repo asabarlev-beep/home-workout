@@ -929,12 +929,12 @@
   .nut-qty{ display:grid; grid-template-columns:48px minmax(0,1fr) 48px; gap:8px; direction:ltr; }
   .nut-qty-step{ background:var(--surface2); border:none; color:var(--text); border-radius:12px; font-size:22px; font-weight:700; cursor:pointer; height:48px; }
   .nut-qty-step:active{ background:var(--accent); color:#12151a; }
-  .nut-qty-field{ display:flex; align-items:center; gap:6px; background:var(--surface2); border:1px solid transparent; border-radius:12px; height:48px; padding:0 14px; cursor:text; min-width:0; }
+  .nut-qty-field{ display:block; background:var(--surface2); border:1px solid transparent; border-radius:12px; height:48px; padding:0 4px; cursor:text; min-width:0; }
   .nut-qty-field:focus-within{ border-color:var(--accent); }
-  .nut-qty-field input{ flex:1 1 auto; width:0; min-width:0; background:none; border:none; outline:none; color:var(--text); font-size:22px; font-weight:800; text-align:center; padding:0; height:46px; line-height:normal; direction:ltr; font-family:inherit; }
-  .nut-qty-field span{ flex:0 0 auto; direction:rtl; unicode-bidi:isolate; color:var(--muted); font-size:13px; white-space:nowrap; }
+  .nut-qty-field input{ display:block; width:100%; min-width:0; background:none; border:none; outline:none; color:var(--text); font-size:22px; font-weight:800; text-align:center; padding:0; height:46px; line-height:normal; direction:ltr; font-family:inherit; }
   .nut-qty-foot{ display:flex; align-items:center; justify-content:space-between; gap:10px; margin-top:6px; min-height:30px; }
-  .nut-qty-note{ flex:1 1 auto; min-width:0; font-size:12.5px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .nut-qty-note{ flex:1 1 auto; min-width:0; display:flex; flex-wrap:wrap; column-gap:8px; font-size:12.5px; line-height:1.4; color:var(--muted); }
+  .nut-qty-note span{ white-space:nowrap; }
   .nut-unit-toggle{ flex:0 0 auto; display:flex; gap:2px; background:var(--surface2); border-radius:9px; padding:2px; }
   .nut-unit-toggle button{ background:none; border:none; color:var(--muted); border-radius:7px; padding:5px 12px; font-size:12.5px; font-weight:700; font-family:inherit; cursor:pointer; }
   .nut-unit-toggle button.active{ background:var(--bg); color:var(--text); }
@@ -1583,7 +1583,7 @@
       <div class="nut-portion" id="nutPortion" style="display:none;">
         <div class="nut-qty">
           <button type="button" class="nut-qty-step" id="nutQtyMinus" aria-label="פחות">−</button>
-          <label class="nut-qty-field"><input type="text" id="nutQtyInput" inputmode="decimal" autocomplete="off" aria-label="כמות"><span id="nutQtyUnit"></span></label>
+          <label class="nut-qty-field"><input type="text" id="nutQtyInput" inputmode="decimal" autocomplete="off" aria-label="כמות"></label>
           <button type="button" class="nut-qty-step" id="nutQtyPlus" aria-label="עוד">+</button>
         </div>
         <div class="nut-qty-foot">
@@ -4109,16 +4109,15 @@ function applyFoodPortion(keepField){
   document.querySelectorAll('#nutUnitToggle [data-unit]').forEach(b => b.classList.toggle('active', b.dataset.unit === nutQtyMode));
   const v = nutQtyValue();
   if (!keepField) document.getElementById('nutQtyInput').value = v ? (grams ? String(v) : fmtQty(v)) : '';
-  document.getElementById('nutQtyUnit').textContent = grams ? "ג'" : (v === 1 ? 'מנה' : 'מנות');
-  // what one serving is, and the same amount in the other unit
+  // what the number means: the serving and the total in grams, or grams as servings
   let label;
   if (!v) label = grams ? 'כמה גרם?' : 'כמה מנות?';
   else if (grams){
     const q = v / f.grams, qr = Math.round(q * 4) / 4;
-    label = `${Math.abs(q - qr) > 0.01 ? 'בערך ' : ''}<bdi>${fmtQty(qr || 0.25)}</bdi> × ${esc(f.unit)}`;
+    label = `<span>גרם</span><span>${Math.abs(q - qr) > 0.01 ? 'בערך ' : '= '}<bdi>${fmtQty(qr || 0.25)}</bdi> ${qr === 1 ? 'מנה' : 'מנות'}</span>`;
   }
-  else if (f.unit === 'מנה' && !f.grams) label = '';
-  else label = `מנה = ${esc(f.unit)}${f.grams ? ` · סה"כ ${Math.round(v * f.grams)} ג'` : ''}`;
+  else if (!f.grams) label = f.unit === 'מנה' ? (v === 1 ? 'מנה' : 'מנות') : `× ${esc(f.unit)}`;
+  else label = `<span>× ${esc(f.unit)}</span><span>סה"כ ${Math.round(v * f.grams)} ג'</span>`;
   document.getElementById('nutPortionLabel').innerHTML = label;
 }
 
@@ -5587,7 +5586,7 @@ document.getElementById('coachOverlay').addEventListener('click', (e) => {
 });
 
 // bump on every change that reaches the phone, and add a line to "History of changes" in CLAUDE.md
-const APP_VERSION = '1.30';
+const APP_VERSION = '1.31';
 const APP_VERSION_DATE = '7.10.2026';
 document.getElementById('appVersion').textContent = `גרסה ${APP_VERSION} · ${APP_VERSION_DATE}`;
 
