@@ -924,24 +924,21 @@
   .nut-suggest-item{ display:flex; flex-direction:column; align-items:flex-start; gap:1px; text-align:right; background:var(--surface2); border:none; color:var(--text); border-radius:12px; padding:9px 12px; cursor:pointer; font-family:inherit; }
   .nut-suggest-name{ font-size:14.5px; font-weight:700; }
   .nut-suggest-meta{ font-size:12px; color:var(--muted); }
-  .nut-portion{ margin-top:8px; background:var(--surface2); border-radius:16px; padding:10px; }
+  .nut-portion{ margin-top:8px; }
   .nut-portion-label{ font-size:13px; color:var(--muted); margin-bottom:6px; }
-  .nut-portion .nut-portion-label{ text-align:center; margin:8px 0 0; }
-  .nut-portion .nut-portion-label:empty{ display:none; }
-  .nut-unit-toggle{ display:flex; gap:4px; background:var(--bg); border-radius:11px; padding:3px; margin-bottom:10px; }
-  .nut-unit-toggle button{ flex:1; background:none; border:none; color:var(--muted); border-radius:9px; padding:7px 0; font-size:14px; font-weight:700; font-family:inherit; cursor:pointer; }
-  .nut-unit-toggle button.active{ background:var(--surface); color:var(--text); }
-  .nut-unit-toggle[hidden]{ display:none; }
-  .nut-qty{ display:grid; grid-template-columns:52px minmax(0,1fr) 52px; gap:8px; align-items:stretch; direction:ltr; }
-  .nut-qty-step{ background:var(--bg); border:none; color:var(--text); border-radius:12px; font-size:24px; font-weight:700; cursor:pointer; height:52px; }
+  .nut-qty{ display:grid; grid-template-columns:48px minmax(0,1fr) 48px; gap:8px; direction:ltr; }
+  .nut-qty-step{ background:var(--surface2); border:none; color:var(--text); border-radius:12px; font-size:22px; font-weight:700; cursor:pointer; height:48px; }
   .nut-qty-step:active{ background:var(--accent); color:#12151a; }
-  .nut-qty-field{ display:flex; align-items:baseline; justify-content:center; gap:6px; background:var(--bg); border:1px solid var(--line); border-radius:12px; height:52px; padding:0 10px; cursor:text; min-width:0; }
+  .nut-qty-field{ display:flex; align-items:center; gap:6px; background:var(--surface2); border:1px solid transparent; border-radius:12px; height:48px; padding:0 14px; cursor:text; min-width:0; }
   .nut-qty-field:focus-within{ border-color:var(--accent); }
-  .nut-qty-field input{ width:5ch; min-width:0; background:none; border:none; outline:none; color:var(--text); font-size:24px; font-weight:800; text-align:center; padding:0; line-height:50px; direction:ltr; font-family:inherit; }
-  .nut-qty-field span{ direction:rtl; unicode-bidi:isolate; color:var(--muted); font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-  .nut-qty-chips{ display:flex; gap:6px; margin-top:8px; direction:ltr; }
-  .nut-qty-chips button{ flex:1 1 0; min-width:0; background:var(--bg); border:none; color:var(--text); border-radius:10px; padding:8px 0; font-size:14px; font-weight:700; cursor:pointer; font-family:inherit; direction:ltr; }
-  .nut-qty-chips button.active{ background:var(--accent); color:#12151a; }
+  .nut-qty-field input{ flex:1 1 auto; width:0; min-width:0; background:none; border:none; outline:none; color:var(--text); font-size:22px; font-weight:800; text-align:center; padding:0; height:46px; line-height:normal; direction:ltr; font-family:inherit; }
+  .nut-qty-field span{ flex:0 0 auto; direction:rtl; unicode-bidi:isolate; color:var(--muted); font-size:13px; white-space:nowrap; }
+  .nut-qty-foot{ display:flex; align-items:center; justify-content:space-between; gap:10px; margin-top:6px; min-height:30px; }
+  .nut-qty-note{ flex:1 1 auto; min-width:0; font-size:12.5px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .nut-unit-toggle{ flex:0 0 auto; display:flex; gap:2px; background:var(--surface2); border-radius:9px; padding:2px; }
+  .nut-unit-toggle button{ background:none; border:none; color:var(--muted); border-radius:7px; padding:5px 12px; font-size:12.5px; font-weight:700; font-family:inherit; cursor:pointer; }
+  .nut-unit-toggle button.active{ background:var(--bg); color:var(--text); }
+  .nut-unit-toggle[hidden]{ display:none; }
   .nut-portion-btns{ display:flex; gap:6px; flex-wrap:wrap; }
   .nut-portion-btns button{ flex:1 0 40px; background:var(--surface2); border:none; color:var(--text); border-radius:10px; padding:9px 0; font-size:15px; font-weight:700; cursor:pointer; }
   .nut-portion-btns button.active{ background:var(--accent); color:#12151a; }
@@ -1584,17 +1581,18 @@
         <div class="nut-suggest" id="nutSuggest"></div>
       </div>
       <div class="nut-portion" id="nutPortion" style="display:none;">
-        <div class="nut-unit-toggle" id="nutUnitToggle" role="group" aria-label="יחידת כמות">
-          <button type="button" data-unit="portion" class="active">מנות</button>
-          <button type="button" data-unit="grams">גרם</button>
-        </div>
         <div class="nut-qty">
           <button type="button" class="nut-qty-step" id="nutQtyMinus" aria-label="פחות">−</button>
           <label class="nut-qty-field"><input type="text" id="nutQtyInput" inputmode="decimal" autocomplete="off" aria-label="כמות"><span id="nutQtyUnit"></span></label>
           <button type="button" class="nut-qty-step" id="nutQtyPlus" aria-label="עוד">+</button>
         </div>
-        <div class="nut-qty-chips" id="nutQtyChips"></div>
-        <div class="nut-portion-label" id="nutPortionLabel"></div>
+        <div class="nut-qty-foot">
+          <div class="nut-qty-note" id="nutPortionLabel"></div>
+          <div class="nut-unit-toggle" id="nutUnitToggle" role="group" aria-label="יחידת כמות">
+            <button type="button" data-unit="portion" class="active">מנות</button>
+            <button type="button" data-unit="grams">גרם</button>
+          </div>
+        </div>
       </div>
       <div class="nut-custom" id="nutCustom" hidden>
         <div class="nut-portion-label">מאכל חדש · הערכים שתקליד הם:</div>
@@ -4083,20 +4081,19 @@ function fmtQty(q){
   return (whole ? String(whole) : '') + sym || '0';
 }
 
+// "1½", "1.5", "1,5", "½" → number; anything else → null
+function parseQtyInput(raw){
+  const t = String(raw || '').replace(/\s/g, '').replace(',', '.')
+    .replace(/^(\d*)([¼½¾])$/, (m, w, f) => String(Number(w || 0) + { '¼': 0.25, '½': 0.5, '¾': 0.75 }[f]));
+  return /^\d{1,4}(\.\d{0,2})?$|^\.\d{1,2}$/.test(t) ? Number(t) : null;
+}
+
 function nutQtyValue(){ return nutQtyMode === 'grams' ? pickedGrams : pickedQty; }
 
 function portionText(){
   if (!pickedFood) return '';
   if (nutQtyMode === 'grams' && pickedGrams) return `${pickedGrams} ג'`;
   return pickedQty === 1 ? pickedFood.unit : `${fmtQty(pickedQty)} × ${pickedFood.unit}`;
-}
-
-function nutQtyChipValues(){
-  if (nutQtyMode === 'grams'){
-    const g = pickedFood.grams;
-    return [...new Set([50, 100, 150, 200, g].filter(v => v >= 5 && v <= 1000))].sort((a, b) => a - b).slice(0, 5);
-  }
-  return [0.5, 1, 1.5, 2, 3];
 }
 
 // keepField: the user is typing in the quantity box, so do not rewrite it
@@ -4111,10 +4108,8 @@ function applyFoodPortion(keepField){
   document.getElementById('nutUnitToggle').hidden = !f.grams;
   document.querySelectorAll('#nutUnitToggle [data-unit]').forEach(b => b.classList.toggle('active', b.dataset.unit === nutQtyMode));
   const v = nutQtyValue();
-  if (!keepField) document.getElementById('nutQtyInput').value = v ? (grams ? String(v) : String(Math.round(v * 100) / 100)) : '';
+  if (!keepField) document.getElementById('nutQtyInput').value = v ? (grams ? String(v) : fmtQty(v)) : '';
   document.getElementById('nutQtyUnit').textContent = grams ? "ג'" : (v === 1 ? 'מנה' : 'מנות');
-  document.getElementById('nutQtyChips').innerHTML = nutQtyChipValues().map(c =>
-    `<button type="button" data-qc="${c}" class="${c === v ? 'active' : ''}">${grams ? c : fmtQty(c)}</button>`).join('');
   // what one serving is, and the same amount in the other unit
   let label;
   if (!v) label = grams ? 'כמה גרם?' : 'כמה מנות?';
@@ -4198,10 +4193,6 @@ document.getElementById('nutNameInput').addEventListener('input', () => {
 });
 document.getElementById('nutQtyMinus').addEventListener('click', () => stepNutQty(-1));
 document.getElementById('nutQtyPlus').addEventListener('click', () => stepNutQty(1));
-document.getElementById('nutQtyChips').addEventListener('click', (e) => {
-  const b = e.target.closest('[data-qc]');
-  if (b) setNutQty(Number(b.dataset.qc));
-});
 document.querySelectorAll('#nutUnitToggle [data-unit]').forEach(btn => btn.addEventListener('click', () => {
   const mode = btn.dataset.unit;
   if (mode === nutQtyMode || !pickedFood || !pickedFood.grams) return;
@@ -4213,8 +4204,7 @@ document.querySelectorAll('#nutUnitToggle [data-unit]').forEach(btn => btn.addEv
 }));
 document.getElementById('nutQtyInput').addEventListener('focus', (e) => e.target.select());
 document.getElementById('nutQtyInput').addEventListener('input', (e) => {
-  const t = e.target.value.replace(/\s/g, '').replace(',', '.');
-  const n = /^\d{0,4}(\.\d{0,2})?$/.test(t) && t !== '' && t !== '.' ? Number(t) : null;
+  const n = parseQtyInput(e.target.value);
   const v = n > 0 ? (nutQtyMode === 'grams' ? Math.round(n) : n) : null;
   if (nutQtyMode === 'grams') pickedGrams = v; else pickedQty = v;
   applyFoodPortion(true);
@@ -4222,7 +4212,7 @@ document.getElementById('nutQtyInput').addEventListener('input', (e) => {
 // tidy the typed value only — a full re-render here would swallow a tap on a chip or ± that caused the blur
 document.getElementById('nutQtyInput').addEventListener('blur', (e) => {
   const v = pickedFood && nutQtyValue();
-  if (v) e.target.value = String(Math.round(v * 100) / 100);
+  if (v) e.target.value = nutQtyMode === 'grams' ? String(v) : fmtQty(v);
 });
 document.getElementById('nutQtyInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') e.target.blur(); });
 
@@ -5597,7 +5587,7 @@ document.getElementById('coachOverlay').addEventListener('click', (e) => {
 });
 
 // bump on every change that reaches the phone, and add a line to "History of changes" in CLAUDE.md
-const APP_VERSION = '1.29';
+const APP_VERSION = '1.30';
 const APP_VERSION_DATE = '7.10.2026';
 document.getElementById('appVersion').textContent = `גרסה ${APP_VERSION} · ${APP_VERSION_DATE}`;
 
