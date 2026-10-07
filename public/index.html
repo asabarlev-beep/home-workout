@@ -924,8 +924,24 @@
   .nut-suggest-item{ display:flex; flex-direction:column; align-items:flex-start; gap:1px; text-align:right; background:var(--surface2); border:none; color:var(--text); border-radius:12px; padding:9px 12px; cursor:pointer; font-family:inherit; }
   .nut-suggest-name{ font-size:14.5px; font-weight:700; }
   .nut-suggest-meta{ font-size:12px; color:var(--muted); }
-  .nut-portion{ margin-top:8px; }
+  .nut-portion{ margin-top:8px; background:var(--surface2); border-radius:16px; padding:10px; }
   .nut-portion-label{ font-size:13px; color:var(--muted); margin-bottom:6px; }
+  .nut-portion .nut-portion-label{ text-align:center; margin:8px 0 0; }
+  .nut-portion .nut-portion-label:empty{ display:none; }
+  .nut-unit-toggle{ display:flex; gap:4px; background:var(--bg); border-radius:11px; padding:3px; margin-bottom:10px; }
+  .nut-unit-toggle button{ flex:1; background:none; border:none; color:var(--muted); border-radius:9px; padding:7px 0; font-size:14px; font-weight:700; font-family:inherit; cursor:pointer; }
+  .nut-unit-toggle button.active{ background:var(--surface); color:var(--text); }
+  .nut-unit-toggle[hidden]{ display:none; }
+  .nut-qty{ display:grid; grid-template-columns:52px minmax(0,1fr) 52px; gap:8px; align-items:stretch; direction:ltr; }
+  .nut-qty-step{ background:var(--bg); border:none; color:var(--text); border-radius:12px; font-size:24px; font-weight:700; cursor:pointer; height:52px; }
+  .nut-qty-step:active{ background:var(--accent); color:#12151a; }
+  .nut-qty-field{ display:flex; align-items:baseline; justify-content:center; gap:6px; background:var(--bg); border:1px solid var(--line); border-radius:12px; height:52px; padding:0 10px; cursor:text; min-width:0; }
+  .nut-qty-field:focus-within{ border-color:var(--accent); }
+  .nut-qty-field input{ width:5ch; min-width:0; background:none; border:none; outline:none; color:var(--text); font-size:24px; font-weight:800; text-align:center; padding:0; line-height:50px; direction:ltr; font-family:inherit; }
+  .nut-qty-field span{ direction:rtl; unicode-bidi:isolate; color:var(--muted); font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .nut-qty-chips{ display:flex; gap:6px; margin-top:8px; direction:ltr; }
+  .nut-qty-chips button{ flex:1 1 0; min-width:0; background:var(--bg); border:none; color:var(--text); border-radius:10px; padding:8px 0; font-size:14px; font-weight:700; cursor:pointer; font-family:inherit; direction:ltr; }
+  .nut-qty-chips button.active{ background:var(--accent); color:#12151a; }
   .nut-portion-btns{ display:flex; gap:6px; flex-wrap:wrap; }
   .nut-portion-btns button{ flex:1 0 40px; background:var(--surface2); border:none; color:var(--text); border-radius:10px; padding:9px 0; font-size:15px; font-weight:700; cursor:pointer; }
   .nut-portion-btns button.active{ background:var(--accent); color:#12151a; }
@@ -1568,14 +1584,17 @@
         <div class="nut-suggest" id="nutSuggest"></div>
       </div>
       <div class="nut-portion" id="nutPortion" style="display:none;">
-        <div class="nut-portion-label" id="nutPortionLabel"></div>
-        <div class="nut-portion-btns">
-          <button type="button" data-q="0.5">½</button>
-          <button type="button" data-q="1">1</button>
-          <button type="button" data-q="1.5">1½</button>
-          <button type="button" data-q="2">2</button>
-          <input type="number" id="nutGramsInput" inputmode="numeric" min="1" placeholder="גרם">
+        <div class="nut-unit-toggle" id="nutUnitToggle" role="group" aria-label="יחידת כמות">
+          <button type="button" data-unit="portion" class="active">מנות</button>
+          <button type="button" data-unit="grams">גרם</button>
         </div>
+        <div class="nut-qty">
+          <button type="button" class="nut-qty-step" id="nutQtyMinus" aria-label="פחות">−</button>
+          <label class="nut-qty-field"><input type="text" id="nutQtyInput" inputmode="decimal" autocomplete="off" aria-label="כמות"><span id="nutQtyUnit"></span></label>
+          <button type="button" class="nut-qty-step" id="nutQtyPlus" aria-label="עוד">+</button>
+        </div>
+        <div class="nut-qty-chips" id="nutQtyChips"></div>
+        <div class="nut-portion-label" id="nutPortionLabel"></div>
       </div>
       <div class="nut-custom" id="nutCustom" hidden>
         <div class="nut-portion-label">מאכל חדש · הערכים שתקליד הם:</div>
@@ -3952,6 +3971,11 @@ async function addNutritionEntry(){
     carbs: carbInput.value ? Number(carbInput.value) : 0,
     fat: fatInput.value ? Number(fatInput.value) : 0,
   };
+  if (pickedFood && !nutQtyValue()){
+    showToast(nutQtyMode === 'grams' ? 'כמה גרם אכלת?' : 'כמה מנות אכלת?');
+    document.getElementById('nutQtyInput').focus();
+    return;
+  }
   const isCustom = !pickedFood && !FOOD_LIST.some(f => f.name === name);
   const per100 = isCustom && customBasis === '100';
   const grams = per100 ? customGrams() : null;
@@ -4048,32 +4072,81 @@ function renderFoodSuggestions(){
   });
 }
 
-function portionText(){
-  if (!pickedFood) return '';
-  if (pickedGrams) return `${pickedGrams} ג'`;
-  const q = { 0.5: '½', 1: '', 1.5: '1½', 2: '2' }[pickedQty] ?? String(pickedQty);
-  return q ? `${q} × ${pickedFood.unit}` : pickedFood.unit;
+// quantity of a picked food: servings (any number, ¼ steps) or grams (foods with a known serving weight)
+let nutQtyMode = 'portion'; // 'portion' | 'grams'
+
+// 1.5 → "1½", 0.25 → "¼", 2.3 → "2.3"
+function fmtQty(q){
+  const whole = Math.floor(q + 1e-9), frac = Math.round((q - whole) * 100) / 100;
+  const sym = { 0: '', 0.25: '¼', 0.5: '½', 0.75: '¾' }[frac];
+  if (sym === undefined) return String(Math.round(q * 100) / 100);
+  return (whole ? String(whole) : '') + sym || '0';
 }
 
-function applyFoodPortion(){
+function nutQtyValue(){ return nutQtyMode === 'grams' ? pickedGrams : pickedQty; }
+
+function portionText(){
+  if (!pickedFood) return '';
+  if (nutQtyMode === 'grams' && pickedGrams) return `${pickedGrams} ג'`;
+  return pickedQty === 1 ? pickedFood.unit : `${fmtQty(pickedQty)} × ${pickedFood.unit}`;
+}
+
+function nutQtyChipValues(){
+  if (nutQtyMode === 'grams'){
+    const g = pickedFood.grams;
+    return [...new Set([50, 100, 150, 200, g].filter(v => v >= 5 && v <= 1000))].sort((a, b) => a - b).slice(0, 5);
+  }
+  return [0.5, 1, 1.5, 2, 3];
+}
+
+// keepField: the user is typing in the quantity box, so do not rewrite it
+function applyFoodPortion(keepField){
   const f = pickedFood;
-  const factor = pickedGrams && f.grams ? pickedGrams / f.grams : pickedQty;
+  const grams = nutQtyMode === 'grams';
+  const factor = grams ? (pickedGrams && f.grams ? pickedGrams / f.grams : 0) : (pickedQty || 0);
   document.getElementById('nutCalInput').value = Math.round(f.calories * factor);
   document.getElementById('nutProInput').value = round1(f.protein * factor);
   document.getElementById('nutCarbInput').value = round1(f.carbs * factor);
   document.getElementById('nutFatInput').value = round1(f.fat * factor);
-  document.querySelectorAll('#nutPortion [data-q]').forEach(b =>
-    b.classList.toggle('active', !pickedGrams && Number(b.getAttribute('data-q')) === pickedQty));
-  document.getElementById('nutPortionLabel').textContent = `כמות: ${portionText()}`;
+  document.getElementById('nutUnitToggle').hidden = !f.grams;
+  document.querySelectorAll('#nutUnitToggle [data-unit]').forEach(b => b.classList.toggle('active', b.dataset.unit === nutQtyMode));
+  const v = nutQtyValue();
+  if (!keepField) document.getElementById('nutQtyInput').value = v ? (grams ? String(v) : String(Math.round(v * 100) / 100)) : '';
+  document.getElementById('nutQtyUnit').textContent = grams ? "ג'" : (v === 1 ? 'מנה' : 'מנות');
+  document.getElementById('nutQtyChips').innerHTML = nutQtyChipValues().map(c =>
+    `<button type="button" data-qc="${c}" class="${c === v ? 'active' : ''}">${grams ? c : fmtQty(c)}</button>`).join('');
+  // what one serving is, and the same amount in the other unit
+  let label;
+  if (!v) label = grams ? 'כמה גרם?' : 'כמה מנות?';
+  else if (grams){
+    const q = v / f.grams, qr = Math.round(q * 4) / 4;
+    label = `${Math.abs(q - qr) > 0.01 ? 'בערך ' : ''}<bdi>${fmtQty(qr || 0.25)}</bdi> × ${esc(f.unit)}`;
+  }
+  else if (f.unit === 'מנה' && !f.grams) label = '';
+  else label = `מנה = ${esc(f.unit)}${f.grams ? ` · סה"כ ${Math.round(v * f.grams)} ג'` : ''}`;
+  document.getElementById('nutPortionLabel').innerHTML = label;
+}
+
+function setNutQty(v){
+  if (nutQtyMode === 'grams') pickedGrams = v; else pickedQty = v;
+  applyFoodPortion();
+}
+
+function stepNutQty(dir){
+  const cur = nutQtyValue() || 0;
+  let step;
+  if (nutQtyMode === 'grams') step = (dir < 0 ? cur <= 50 : cur < 50) ? 5 : 10;
+  else step = (dir < 0 ? cur <= 1 : cur < 1) ? 0.25 : 0.5;
+  const min = nutQtyMode === 'grams' ? 5 : 0.25;
+  setNutQty(Math.max(min, Math.round((cur + dir * step) / step) * step));
 }
 
 function pickFood(food){
   pickedFood = food;
   pickedQty = 1;
   pickedGrams = null;
+  nutQtyMode = 'portion';
   document.getElementById('nutNameInput').value = food.name;
-  document.getElementById('nutGramsInput').value = '';
-  document.getElementById('nutGramsInput').style.display = food.grams ? '' : 'none';
   document.getElementById('nutPortion').style.display = '';
   renderFoodSuggestions();
   renderCustomFood();
@@ -4123,17 +4196,35 @@ document.getElementById('nutNameInput').addEventListener('input', () => {
   renderFoodSuggestions();
   renderCustomFood();
 });
-document.querySelectorAll('#nutPortion [data-q]').forEach(btn => btn.addEventListener('click', () => {
-  pickedQty = Number(btn.getAttribute('data-q'));
-  pickedGrams = null;
-  document.getElementById('nutGramsInput').value = '';
+document.getElementById('nutQtyMinus').addEventListener('click', () => stepNutQty(-1));
+document.getElementById('nutQtyPlus').addEventListener('click', () => stepNutQty(1));
+document.getElementById('nutQtyChips').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-qc]');
+  if (b) setNutQty(Number(b.dataset.qc));
+});
+document.querySelectorAll('#nutUnitToggle [data-unit]').forEach(btn => btn.addEventListener('click', () => {
+  const mode = btn.dataset.unit;
+  if (mode === nutQtyMode || !pickedFood || !pickedFood.grams) return;
+  // carry the same amount over to the other unit
+  if (mode === 'grams') pickedGrams = Math.max(5, Math.round((pickedQty || 1) * pickedFood.grams / 5) * 5);
+  else pickedQty = Math.max(0.25, Math.round((pickedGrams || pickedFood.grams) / pickedFood.grams * 4) / 4);
+  nutQtyMode = mode;
   applyFoodPortion();
 }));
-document.getElementById('nutGramsInput').addEventListener('input', (e) => {
-  const g = Math.round(Number(e.target.value));
-  pickedGrams = g > 0 ? g : null;
-  applyFoodPortion();
+document.getElementById('nutQtyInput').addEventListener('focus', (e) => e.target.select());
+document.getElementById('nutQtyInput').addEventListener('input', (e) => {
+  const t = e.target.value.replace(/\s/g, '').replace(',', '.');
+  const n = /^\d{0,4}(\.\d{0,2})?$/.test(t) && t !== '' && t !== '.' ? Number(t) : null;
+  const v = n > 0 ? (nutQtyMode === 'grams' ? Math.round(n) : n) : null;
+  if (nutQtyMode === 'grams') pickedGrams = v; else pickedQty = v;
+  applyFoodPortion(true);
 });
+// tidy the typed value only — a full re-render here would swallow a tap on a chip or ± that caused the blur
+document.getElementById('nutQtyInput').addEventListener('blur', (e) => {
+  const v = pickedFood && nutQtyValue();
+  if (v) e.target.value = String(Math.round(v * 100) / 100);
+});
+document.getElementById('nutQtyInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') e.target.blur(); });
 
 /* recent foods: one tap logs the same portion again */
 async function loadRecentFoods(){
@@ -5506,8 +5597,8 @@ document.getElementById('coachOverlay').addEventListener('click', (e) => {
 });
 
 // bump on every change that reaches the phone, and add a line to "History of changes" in CLAUDE.md
-const APP_VERSION = '1.28';
-const APP_VERSION_DATE = '6.10.2026';
+const APP_VERSION = '1.29';
+const APP_VERSION_DATE = '7.10.2026';
 document.getElementById('appVersion').textContent = `גרסה ${APP_VERSION} · ${APP_VERSION_DATE}`;
 
 async function init(){
