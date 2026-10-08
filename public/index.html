@@ -1725,8 +1725,8 @@ const DEFAULT_DAYS = [
   {
     key: 'd4', order: 4, label: 'תחתון ב', muscles: 'רגליים — דגש על ישבן וירך; בטן',
     exercises: [
+      { id: 'hip_thrust', name: 'היפ תראסט (מוט)', target: '8 עד 12 חזרות · RIR 1 עד 2 · מנוחה 2 דק׳', bar: 20 },
       { id: 'goblet_squat', name: 'גובלט סקוואט (משקולת יד/קטלבל)', target: '8 עד 12 חזרות · RIR 2 · מנוחה 2 דק׳' },
-      { id: 'split_squat', name: 'ספליט סקוואט או הליכת מספריים', target: '8 עד 12 חזרות · RIR 1 עד 2 · מנוחה 2 דק׳' },
       { id: 'leg_curl_standing_cable', name: 'כפיפת ברך בכבל בעמידה', target: '10 עד 15 חזרות · RIR 0 עד 1 · מנוחה 90 שנ׳' },
       { id: 'calf_seated', name: 'תאומים בישיבה', target: '12 עד 20 חזרות · RIR 0 עד 1 · מנוחה 60 עד 90 שנ׳' },
       { id: 'abs_cable', name: 'בטן (כבל)', target: '10 עד 15 חזרות · RIR 1 · מנוחה 60 שנ׳' },
@@ -1800,8 +1800,18 @@ function defaultBarFor(name){
   if (/לחיצת חזה.*\(?מוט|לחיצת חזה במוט|barbell (incline|bench)/i.test(n)) return 20;
   return undefined;
 }
+// 8.10.2026: in תחתון ב the split squat (a second quad move right after the goblet squat) was replaced by
+// a hip thrust, placed first because glutes are that day's focus. Runs once on a saved plan; split-squat history keeps its id.
+const HIP_THRUST = { id: 'hip_thrust', name: 'היפ תראסט (מוט)', target: '8 עד 12 חזרות · RIR 1 עד 2 · מנוחה 2 דק׳', bar: 20 };
 async function applyBarDefaults(){
   let changed = false;
+  const lowerB = DAYS.find(d => d.key === 'd4');
+  const si = lowerB ? lowerB.exercises.findIndex(e => e.id === 'split_squat') : -1;
+  if (si !== -1 && !lowerB.exercises.some(e => e.id === 'hip_thrust')){
+    lowerB.exercises.splice(si, 1);
+    lowerB.exercises.unshift({ ...HIP_THRUST });
+    changed = true;
+  }
   DAYS.forEach(d => d.exercises.forEach(ex => {
     // plan typo: the second calf exercise (תחתון ב) was meant to be seated — knee bent works the soleus,
     // standing (תחתון א) works the gastrocnemius. Renamed only if the user never changed the name; history keeps its id.
@@ -5200,7 +5210,7 @@ const MUSCLE_OF = {
   triceps_ext: 'יד אחורית', triceps_overhead: 'יד אחורית', triceps_pushdown: 'יד אחורית',
   tricep_long: 'יד אחורית', tricep_short: 'יד אחורית', tricep_mid: 'יד אחורית',
   squat: 'ארבע ראשי', goblet_squat: 'ארבע ראשי', split_squat: 'ארבע ראשי',
-  rdl: 'ירך אחורית', sumo_squat_db: 'ישבן', leg_curl_standing_cable: 'ירך אחורית',
+  rdl: 'ירך אחורית', sumo_squat_db: 'ישבן', hip_thrust: 'ישבן', leg_curl_standing_cable: 'ירך אחורית',
   calf_standing: 'תאומים', calf_seated: 'תאומים',
   abs_cable: 'בטן', abs: 'בטן',
 };
@@ -5616,7 +5626,7 @@ document.getElementById('coachOverlay').addEventListener('click', (e) => {
 });
 
 // bump on every change that reaches the phone, and add a line to "History of changes" in CLAUDE.md
-const APP_VERSION = '1.35';
+const APP_VERSION = '1.36';
 const APP_VERSION_DATE = '8.10.2026';
 document.getElementById('appVersion').textContent = `גרסה ${APP_VERSION} · ${APP_VERSION_DATE}`;
 
