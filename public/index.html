@@ -3811,7 +3811,7 @@ async function renderBodyWeightPanel(){
   const last = pts[pts.length - 1];
   const rate = await computeWeightRate();
   const rateTxt = rate === null ? '—' : `${rate > 0 ? '+' : ''}${kgToDisplayUnit(Math.round(rate * 100) / 100)}`;
-  const [rateNote, rateColor] = rate === null ? ['צריך שקילה בכל אחד משני השבועות האחרונים', 'var(--muted)']
+  const [rateNote, rateColor] = rate === null ? ['צריך 3 שקילות לאורך שבוע', 'var(--muted)']
     : rate < WEIGHT_GAIN_TARGET.min ? ['איטי מהיעד', '#ffb347']
     : rate > WEIGHT_GAIN_TARGET.max ? ['מהיר מהיעד', '#ffb347'] : ['בקצב הנכון', 'var(--accent)'];
   const avg7 = pts.filter(p => (last.d - p.d) / 86400000 < 7);
@@ -3820,7 +3820,7 @@ async function renderBodyWeightPanel(){
     <div class="sub">שקילה אחרונה · ${last.date}</div>
     <div class="bw-stats">
       <div class="bw-stat"><div class="k">ממוצע 7 ימים</div><div class="v">${(avg7.reduce((s, p) => s + p.w, 0) / avg7.length).toFixed(1)}</div><div class="n" style="color:var(--muted)">${avg7.length} שקילות</div></div>
-      <div class="bw-stat"><div class="k">שינוי שבועי</div><div class="v"><bdi dir="ltr">${rateTxt}</bdi></div><div class="n" style="color:${rateColor}">${rateNote}</div></div>
+      <div class="bw-stat"><div class="k">קצב לשבוע · 14 יום</div><div class="v"><bdi dir="ltr">${rateTxt}</bdi></div><div class="n" style="color:${rateColor}">${rateNote}</div></div>
     </div>`;
   chartWrap.innerHTML = bodyWeightChartSvg(pts);
 
@@ -4411,18 +4411,10 @@ async function computeCalorieCoach(){
   }
   const intake = days.length ? days.reduce((a, b) => a + b, 0) / days.length : null;
 
-  // weight trend: least-squares slope over the weigh-ins of the same window (smooths day-to-day water swings)
-  const pts = (await loadBodyWeightLog()).map(e => ({ d: parseHeDate(e.date), w: Number(e.weight) }))
-    .filter(p => p.d && p.w > 0).map(p => ({ x: Math.round((p.d - today) / 86400000), w: p.w }))
-    .filter(p => p.x <= 0 && p.x > -CAL_WINDOW_DAYS);
-  const span = pts.length ? Math.max(...pts.map(p => p.x)) - Math.min(...pts.map(p => p.x)) : 0;
-  let rate = null;
-  if (pts.length >= CAL_MIN_WEIGHINS && span >= 7){
-    const mx = pts.reduce((s, p) => s + p.x, 0) / pts.length, mw = pts.reduce((s, p) => s + p.w, 0) / pts.length;
-    const num = pts.reduce((s, p) => s + (p.x - mx) * (p.w - mw), 0), den = pts.reduce((s, p) => s + (p.x - mx) ** 2, 0);
-    rate = den ? num / den * 7 : null;
-  }
-  const out = { intake, loggedDays: days.length, weighIns: pts.length, span, rate };
+  // weight trend: the shared 14-day slope, same number as the weight sheet
+  const wt = weightTrend(await loadBodyWeightLog());
+  const rate = wt.rate, span = wt.span;
+  const out = { intake, loggedDays: days.length, weighIns: wt.n, span, rate };
   if (intake === null || days.length < CAL_MIN_DAYS || rate === null) return out;
 
   const maintenance = intake - rate * KCAL_PER_KG / 7;
@@ -5317,15 +5309,26 @@ async function computeProteinWeek(){
 }
 
 // average of the last 7 days vs the 7 days before; needs at least one weigh-in in each week
-async function computeWeightRate(){
-  const log = await loadBodyWeightLog();
+// The ONE body-weight rate used everywhere (weight sheet, calorie coach, coach report):
+// least-squares slope over the weigh-ins of the last CAL_WINDOW_DAYS days, in kg per week.
+// It uses every weigh-in, so a single high or low day moves it far less than "this week's average − last week's".
+function weightTrend(log){
   const today = new Date(); today.setHours(0, 0, 0, 0);
-  const ageDays = (e) => { const d = parseHeDate(e.date); return d ? Math.round((today - d) / 86400000) : null; };
-  const avg = (arr) => arr.reduce((s, e) => s + e.weight, 0) / arr.length;
-  const thisWeek = log.filter(e => { const a = ageDays(e); return a !== null && a >= 0 && a < 7; });
-  const lastWeek = log.filter(e => { const a = ageDays(e); return a !== null && a >= 7 && a < 14; });
-  if (!thisWeek.length || !lastWeek.length) return null;
-  return avg(thisWeek) - avg(lastWeek);
+  const pts = (log || []).map(e => ({ d: parseHeDate(e.date), w: Number(e.weight) }))
+    .filter(p => p.d && p.w > 0).map(p => ({ x: Math.round((p.d - today) / 86400000), w: p.w }))
+    .filter(p => p.x <= 0 && p.x > -CAL_WINDOW_DAYS);
+  const span = pts.length ? Math.max(...pts.map(p => p.x)) - Math.min(...pts.map(p => p.x)) : 0;
+  let rate = null;
+  if (pts.length >= CAL_MIN_WEIGHINS && span >= 7){
+    const mx = pts.reduce((s, p) => s + p.x, 0) / pts.length, mw = pts.reduce((s, p) => s + p.w, 0) / pts.length;
+    const num = pts.reduce((s, p) => s + (p.x - mx) * (p.w - mw), 0), den = pts.reduce((s, p) => s + (p.x - mx) ** 2, 0);
+    rate = den ? num / den * 7 : null;
+  }
+  return { rate, n: pts.length, span };
+}
+
+async function computeWeightRate(){
+  return weightTrend(await loadBodyWeightLog()).rate;
 }
 
 function trendSectionHtml(protein, rate){
@@ -5599,8 +5602,8 @@ document.getElementById('coachOverlay').addEventListener('click', (e) => {
 });
 
 // bump on every change that reaches the phone, and add a line to "History of changes" in CLAUDE.md
-const APP_VERSION = '1.33';
-const APP_VERSION_DATE = '7.10.2026';
+const APP_VERSION = '1.34';
+const APP_VERSION_DATE = '8.10.2026';
 document.getElementById('appVersion').textContent = `גרסה ${APP_VERSION} · ${APP_VERSION_DATE}`;
 
 async function init(){
