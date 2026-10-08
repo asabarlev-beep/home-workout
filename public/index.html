@@ -1725,8 +1725,8 @@ const DEFAULT_DAYS = [
   {
     key: 'd4', order: 4, label: 'תחתון ב', muscles: 'רגליים — דגש על ישבן וירך; בטן',
     exercises: [
+      { id: 'split_squat', name: 'ספליט סקוואט בהטיה קדימה (ישבן)', target: '8 עד 12 חזרות · גו נוטה קדימה, שוק אנכית · RIR 1 עד 2 · מנוחה 2 דק׳' },
       { id: 'goblet_squat', name: 'גובלט סקוואט (משקולת יד/קטלבל)', target: '8 עד 12 חזרות · RIR 2 · מנוחה 2 דק׳' },
-      { id: 'split_squat', name: 'ספליט סקוואט או הליכת מספריים', target: '8 עד 12 חזרות · RIR 1 עד 2 · מנוחה 2 דק׳' },
       { id: 'leg_curl_standing_cable', name: 'כפיפת ברך בכבל בעמידה', target: '10 עד 15 חזרות · RIR 0 עד 1 · מנוחה 90 שנ׳' },
       { id: 'calf_seated', name: 'תאומים בישיבה', target: '12 עד 20 חזרות · RIR 0 עד 1 · מנוחה 60 עד 90 שנ׳' },
       { id: 'abs_cable', name: 'בטן (כבל)', target: '10 עד 15 חזרות · RIR 1 · מנוחה 60 שנ׳' },
@@ -1800,8 +1800,22 @@ function defaultBarFor(name){
   if (/לחיצת חזה.*\(?מוט|לחיצת חזה במוט|barbell (incline|bench)/i.test(n)) return 20;
   return undefined;
 }
+// 8.10.2026: תחתון ב (glute day) had two quad moves in a row. The split squat became a forward-lean split squat
+// (glutes at long length) and moved before the goblet squat. Runs once on a saved plan (only while the old name is there);
+// same id, so its history stays.
+const SPLIT_OLD_NAME = 'ספליט סקוואט או הליכת מספריים';
+const SPLIT_LEAN = { name: 'ספליט סקוואט בהטיה קדימה (ישבן)', target: '8 עד 12 חזרות · גו נוטה קדימה, שוק אנכית · RIR 1 עד 2 · מנוחה 2 דק׳' };
 async function applyBarDefaults(){
   let changed = false;
+  const lowerB = DAYS.find(d => d.key === 'd4');
+  const split = lowerB && lowerB.exercises.find(e => e.id === 'split_squat');
+  if (split && split.name === SPLIT_OLD_NAME){
+    split.name = SPLIT_LEAN.name;
+    if (split.target === '8 עד 12 חזרות · RIR 1 עד 2 · מנוחה 2 דק׳') split.target = SPLIT_LEAN.target;
+    const si = lowerB.exercises.indexOf(split), gi = lowerB.exercises.findIndex(e => e.id === 'goblet_squat');
+    if (gi !== -1 && si > gi){ lowerB.exercises.splice(si, 1); lowerB.exercises.splice(gi, 0, split); }
+    changed = true;
+  }
   DAYS.forEach(d => d.exercises.forEach(ex => {
     // plan typo: the second calf exercise (תחתון ב) was meant to be seated — knee bent works the soleus,
     // standing (תחתון א) works the gastrocnemius. Renamed only if the user never changed the name; history keeps its id.
@@ -5199,7 +5213,7 @@ const MUSCLE_OF = {
   curl: 'יד קדמית', curl_incline_db: 'יד קדמית', hammer_curl: 'יד קדמית', bicep_short: 'יד קדמית', bicep_long: 'יד קדמית',
   triceps_ext: 'יד אחורית', triceps_overhead: 'יד אחורית', triceps_pushdown: 'יד אחורית',
   tricep_long: 'יד אחורית', tricep_short: 'יד אחורית', tricep_mid: 'יד אחורית',
-  squat: 'ארבע ראשי', goblet_squat: 'ארבע ראשי', split_squat: 'ארבע ראשי',
+  squat: 'ארבע ראשי', goblet_squat: 'ארבע ראשי', split_squat: 'ישבן',
   rdl: 'ירך אחורית', sumo_squat_db: 'ישבן', leg_curl_standing_cable: 'ירך אחורית',
   calf_standing: 'תאומים', calf_seated: 'תאומים',
   abs_cable: 'בטן', abs: 'בטן',
@@ -5616,7 +5630,7 @@ document.getElementById('coachOverlay').addEventListener('click', (e) => {
 });
 
 // bump on every change that reaches the phone, and add a line to "History of changes" in CLAUDE.md
-const APP_VERSION = '1.35';
+const APP_VERSION = '1.36';
 const APP_VERSION_DATE = '8.10.2026';
 document.getElementById('appVersion').textContent = `גרסה ${APP_VERSION} · ${APP_VERSION_DATE}`;
 
