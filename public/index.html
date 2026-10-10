@@ -122,6 +122,7 @@
     padding:0;
   }
   .ex-target{ font-size:12px; color:var(--muted); margin-top:3px; }
+  .ex-works{ font-size:12.5px; color:#c9ec4a; margin-top:3px; font-weight:600; }
   .day-switch{
     overflow-x:auto;
     display:flex;
@@ -1291,7 +1292,7 @@
   .card.collapsed > :not(.card-head):not(.card-summary){ display:none !important; }
   .card.collapsed .card-summary{ display:flex; align-items:center; gap:6px; font-size:13px; color:var(--muted); overflow:hidden; white-space:nowrap; }
   .card.collapsed .card-summary span{ overflow:hidden; text-overflow:ellipsis; }
-  .card.collapsed .card-head .ex-target, .card.collapsed .card-head-actions{ display:none; }
+  .card.collapsed .card-head .ex-target, .card.collapsed .card-head .ex-works, .card.collapsed .card-head-actions{ display:none; }
   .card.done.collapsed{ background:#1a1f27; }
   .card.done.collapsed .ex-name{ color:var(--muted); }
   .card.done .card-summary{ color:#c9ec4a; }
@@ -2084,7 +2085,7 @@ async function renderExercises(){
 
     card.innerHTML = `
       <div class="card-head">
-        <div><div class="ex-name">${ex.name}</div>${ex.target ? `<div class="ex-target">${ex.target}</div>` : ''}</div>
+        <div><div class="ex-name">${ex.name}</div>${worksOn(ex) ? `<div class="ex-works">🎯 ${worksOn(ex)}</div>` : ''}${ex.target ? `<div class="ex-target">${ex.target}</div>` : ''}</div>
         <div class="card-head-actions">
           <button class="icon-btn" data-action="chart" data-ex="${ex.id}" data-exname="${ex.name}" title="התקדמות" aria-label="התקדמות">${ic('trend')}</button>
           ${editMode ? `
@@ -5218,6 +5219,38 @@ const MUSCLE_OF = {
   calf_standing: 'תאומים', calf_seated: 'תאומים',
   abs_cable: 'בטן', abs: 'בטן',
 };
+// what each exercise works, main muscle first — shown under the exercise name on its card
+const WORKS_ON = {
+  incline_db: 'חזה עליון · כתף קדמית · יד אחורית',
+  chest_press_machine: 'חזה · כתף קדמית · יד אחורית',
+  cable_fly_overhead: 'חזה · כתף קדמית',
+  row_cable: 'גב אמצעי ורחב · כתף אחורית · יד קדמית',
+  row_standing_cable: 'גב אמצעי · כתף אחורית · יד קדמית',
+  pulldown: 'גב רחב · יד קדמית',
+  pullup_or_wide: 'גב רחב · יד קדמית',
+  shoulder_press_seated: 'כתף קדמית וצדדית · יד אחורית',
+  lateral_raise: 'כתף צדדית',
+  lateral_cable: 'כתף צדדית',
+  rear_delt_fly: 'כתף אחורית · גב עליון',
+  curl: 'יד קדמית',
+  curl_incline_db: 'יד קדמית · ראש ארוך, במתיחה',
+  hammer_curl: 'יד קדמית · אמה',
+  triceps_ext: 'יד אחורית · ראש צדדי ופנימי',
+  triceps_pushdown: 'יד אחורית · ראש צדדי ופנימי',
+  triceps_overhead: 'יד אחורית · ראש ארוך, במתיחה',
+  squat: 'ארבע ראשי · ישבן · מקרבים',
+  goblet_squat: 'ארבע ראשי · ישבן · בטן',
+  split_squat: 'ישבן · ארבע ראשי · מקרבים',
+  sumo_squat_db: 'ישבן · מקרבים · ארבע ראשי',
+  rdl: 'ירך אחורית · ישבן · גב תחתון',
+  leg_curl_standing_cable: 'ירך אחורית',
+  calf_standing: 'תאומים · השריר הגדול',
+  calf_seated: 'תאומים · השריר העמוק (סולאוס)',
+  abs_cable: 'בטן',
+};
+// an exercise the user added: the main muscle guessed from its name, or nothing
+const worksOn = (ex) => (ex && (WORKS_ON[ex.id] || guessMuscle(ex.name))) || '';
+
 const MUSCLE_ORDER = ['חזה', 'גב', 'כתפיים', 'יד קדמית', 'יד אחורית', 'ארבע ראשי', 'ירך אחורית', 'ישבן', 'תאומים', 'בטן', 'אחר'];
 
 // first match wins, so the more specific phrases (פרפר הפוך, כפיפת ברך) come before the general ones
@@ -5630,8 +5663,8 @@ document.getElementById('coachOverlay').addEventListener('click', (e) => {
 });
 
 // bump on every change that reaches the phone, and add a line to "History of changes" in CLAUDE.md
-const APP_VERSION = '1.36';
-const APP_VERSION_DATE = '8.10.2026';
+const APP_VERSION = '1.37';
+const APP_VERSION_DATE = '10.10.2026';
 document.getElementById('appVersion').textContent = `גרסה ${APP_VERSION} · ${APP_VERSION_DATE}`;
 
 async function init(){
