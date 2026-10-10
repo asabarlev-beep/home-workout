@@ -1293,6 +1293,10 @@
   .card.collapsed .card-summary{ display:flex; align-items:center; gap:6px; font-size:13px; color:var(--muted); overflow:hidden; white-space:nowrap; }
   .card.collapsed .card-summary span{ overflow:hidden; text-overflow:ellipsis; }
   .card.collapsed .card-head .ex-target, .card.collapsed .card-head .ex-works, .card.collapsed .card-head-actions{ display:none; }
+  .stall-note{ border:1px solid #ffb347; color:#ffb347; border-radius:10px; padding:7px 10px; font-size:12.5px; line-height:1.45; margin:0 0 10px; }
+  .stall-note b{ font-weight:700; }
+  .stall-note[hidden]{ display:none; }
+  .card.collapsed.stalled .card-summary::before{ content:'⚠️'; flex:0 0 auto; }
   .card.done.collapsed{ background:#1a1f27; }
   .card.done.collapsed .ex-name{ color:var(--muted); }
   .card.done .card-summary{ color:#c9ec4a; }
@@ -2117,6 +2121,7 @@ async function renderExercises(){
         </label>
       </div>
       <div class="last-note">${lastNoteChips(lastForEx, pr, ex)}</div>
+      <div class="stall-note" data-stall="${ex.id}" hidden></div>
       <table class="sets">
         <thead>
           <tr><th style="width:34px;">סט</th><th>חזרות</th><th>משקל (${unitLabel()})</th><th style="width:44px;"></th></tr>
@@ -2296,6 +2301,7 @@ async function renderExercises(){
 
   await restoreTodaySets(currentDayKey);
   updateCardFocus();
+  renderStallNotes(); // reads every workout's history, so it fills in a moment later
 }
 
 /* ---------------- focused cards ----------------
@@ -5509,6 +5515,55 @@ function setLogByDateAll(log){
 
 const bestE1RM = (sets) => Math.max(0, ...sets.filter(s => s.weight != null).map(s => est1RM(s.weight, s.reps)));
 
+/* The ONE stall rule, used by the exercise card and the coach report.
+   A session's score is its best estimated 1RM (more reps at the same weight also raise it);
+   for a bodyweight move logged without weight, its most reps.
+   stallRun = how many of the latest sessions in a row did not beat the best session before them
+   (looking at the last 8). STALL_MIN of them = stuck. */
+const STALL_MIN = 2;
+function sessionScore(sets){
+  const e = bestE1RM(sets);
+  return e > 0 ? e : Math.max(0, ...sets.map(s => Number(s.reps) || 0));
+}
+function stallRun(sessions){
+  const v = sessions.slice(-8).map(s => sessionScore(s.sets));
+  let k = 0;
+  for (let i = v.length - 1; i >= 1; i--){
+    if (v[i] <= Math.max(...v.slice(0, i)) * 1.005) k++; else break;
+  }
+  return k;
+}
+
+// orange note on the card of an exercise that is stuck, with one thing to do about it today
+async function renderStallNotes(){
+  let timeline;
+  try { timeline = await exerciseTimeline(); } catch (e) { return; }
+  const today = todayStr();
+  const day = DAYS.find(d => d.key === currentDayKey);
+  if (!day) return;
+  day.exercises.forEach(ex => {
+    const box = document.querySelector(`.stall-note[data-stall="${ex.id}"]`);
+    if (!box) return;
+    // finished sessions only: today's half-done workout is not a stall
+    const sessions = (timeline[ex.id] || []).filter(s => s.dateStr !== today)
+      .map(s => ({ ...s, sets: s.sets.filter(x => !(x.reps != null && x.reps > 40)) })).filter(s => s.sets.length);
+    const k = sessions.length >= 3 ? stallRun(sessions) : 0;
+    const last = sessions[sessions.length - 1];
+    const next = last ? nextWeightSuggestion(ex, { sets: last.sets }) : null;
+    const stuck = k >= STALL_MIN && !(next && next.kind === 'up');
+    box.closest('.card')?.classList.toggle('stalled', stuck);
+    if (!stuck){ box.hidden = true; box.innerHTML = ''; return; }
+    const range = repRange(ex.target);
+    const reps = last.sets.map(x => x.reps).filter(r => r != null);
+    let todo;
+    if (k >= 4) todo = 'הגיע הזמן לשנות: וריאציה אחרת (משקולות ↔ כבל) או סט נוסף';
+    else if (range && reps.length && reps.every(r => r >= range.hi)) todo = 'היום: לעלות במשקל ולהתחיל מתחתית הטווח';
+    else todo = 'היום: חזרה אחת יותר באותו משקל, בסט הראשון';
+    box.innerHTML = `⚠️ <b>אין שיפור ב-${k} אימונים</b><br>${todo}`;
+    box.hidden = false;
+  });
+}
+
 async function buildCoachReport(){
   const items = [];   // { level:'high'|'mid'|'good', title, why, act }
   const add = (level, title, why, act) => items.push({ level, title, why, act });
@@ -5545,9 +5600,8 @@ async function buildCoachReport(){
     }
     if (sessions.length >= 3){
       enoughHistory++;
-      const recent = sessions.slice(-3).map(s => bestE1RM(s.sets));
       const before = sessions.slice(0, -2).map(s => bestE1RM(s.sets));
-      if (Math.max(recent[1], recent[2]) <= recent[0] && next && next.kind !== 'up') stalled.push(ex.name);
+      if (stallRun(sessions) >= STALL_MIN && !(next && next.kind === 'up')) stalled.push(ex.name);
       const peak = Math.max(...before);
       if (peak > 0 && bestE1RM(last.sets) < peak * 0.93) dropped.push(ex.name);
     }
@@ -5590,7 +5644,7 @@ async function buildCoachReport(){
   if (suspicious.length) add('high', 'נתונים לבדיקה', listHtml(suspicious), 'אם זו טעות הקלדה, תקן או מחק את הסט בהיסטוריה ← "כל הסטים". נתון שגוי מבלבל את ההמלצות להעלאת משקל ואת השיאים.');
   if (tooHeavy.length) add('high', `חזרות מתחת לטווח (${new Set(tooHeavy).size} תרגילים)`, listHtml(tooHeavy, 8), 'איפה שמופיע משקל חדש — עבוד איתו כבר באימון הבא (הוא מופיע גם בכרטיס התרגיל, ו-✓ על שדה ריק שומר אותו). בשאר, רק סט אחד נפל מתחת לטווח: אותו משקל, ועוד חצי דקה מנוחה לפני הסט האחרון. בטווח החזרות השריר גדל, והמפרקים נשמרים.');
   if (lowVol.length) add('high', 'נפח נמוך לשרירים גדולים', `ב-7 הימים האחרונים: ${lowVol.map(m => `${m} ${totals[m] || 0}`).join(' · ')} סטים. היעד 10–20 לשבוע.`, 'הוסף סט אחד לתרגיל הראשון של השריר בכל אימון שלו. מעלים בהדרגה, לא הכול בבת אחת.');
-  if (stalled.length) add('mid', 'תרגילים תקועים', 'אין עלייה בכוח המשוער ב-3 האימונים האחרונים:<br>' + listHtml(stalled), 'קודם שינה, חלבון ו-RIR 1–2 בסט האחרון. אם עוד שבועיים אין תזוזה — החלף וריאציה (למשל משקולות יד ↔ כבל) או הוסף סט.');
+  if (stalled.length) add('mid', 'תרגילים תקועים', '2 אימונים ברצף או יותר בלי לשפר את הכוח המשוער:<br>' + listHtml(stalled), 'קודם שינה, חלבון ו-RIR 1–2 בסט האחרון. אם עוד שבועיים אין תזוזה — החלף וריאציה (למשל משקולות יד ↔ כבל) או הוסף סט.');
   if (tooLight.length) add('mid', 'משקל קל מדי', listHtml(tooLight), 'העלה משקל כבר באימון הבא. מעל הטווח זה כבר אימון סיבולת.');
   if (highVol.length) add('mid', 'נפח גבוה', `${highVol.map(m => `${m} ${totals[m]}`).join(' · ')} סטים בשבוע — מעל 20.`, 'מעל 20 סטים לשריר ההתאוששות אחרי 40 נפגעת. הורד סט מהתרגיל האחרון של השריר.');
   if (onceAWeek.length && last7 >= 3) add('mid', 'שריר שעובד פעם בשבוע', `${onceAWeek.join(', ')} קיבלו השבוע אימון אחד בלבד.`, 'היעד פעמיים בשבוע לכל שריר. אם התוכנית מאפשרת, העבר 2–3 סטים לאימון נוסף.');
@@ -5663,7 +5717,7 @@ document.getElementById('coachOverlay').addEventListener('click', (e) => {
 });
 
 // bump on every change that reaches the phone, and add a line to "History of changes" in CLAUDE.md
-const APP_VERSION = '1.37';
+const APP_VERSION = '1.38';
 const APP_VERSION_DATE = '10.10.2026';
 document.getElementById('appVersion').textContent = `גרסה ${APP_VERSION} · ${APP_VERSION_DATE}`;
 
