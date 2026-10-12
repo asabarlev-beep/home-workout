@@ -1293,6 +1293,8 @@
   .card.collapsed .card-summary{ display:flex; align-items:center; gap:6px; font-size:13px; color:var(--muted); overflow:hidden; white-space:nowrap; }
   .card.collapsed .card-summary span{ overflow:hidden; text-overflow:ellipsis; }
   .card.collapsed .card-head .ex-target, .card.collapsed .card-head .ex-works, .card.collapsed .card-head-actions{ display:none; }
+  .prev-note{ background:rgba(140,170,255,.08); border:1px solid rgba(140,170,255,.35); color:#c8d4ff; border-radius:10px; padding:7px 10px; font-size:12.5px; line-height:1.45; margin:0 0 10px; }
+  .prev-note b{ font-weight:700; }
   .stall-note{ border:1px solid #ffb347; color:#ffb347; border-radius:10px; padding:7px 10px; font-size:12.5px; line-height:1.45; margin:0 0 10px; }
   .stall-note b{ font-weight:700; }
   .stall-note[hidden]{ display:none; }
@@ -2045,6 +2047,34 @@ function updateLiveVolumeDisplay(){
   document.getElementById('heroFill').style.width = (total ? Math.min(100, done / total * 100) : 0) + '%';
 }
 
+/* ---------------- exercise notes survive a reload ----------------
+   A note is saved to 'note-drafts' while typing: { "<dayKey>|<exId>": { date, text } }.
+   Today's draft refills the note field; an older one (a workout that never reached "סיום")
+   still shows as "מהפעם הקודמת". "סיום" moves the notes into the workout and clears the day's drafts. */
+async function loadNoteDrafts(){
+  try { const r = await window.storage.get('note-drafts', false); return (r && r.value) ? JSON.parse(r.value) : {}; }
+  catch (e) { return {}; }
+}
+const noteDraftTimers = {};
+function saveNoteDraftSoon(exId, text){
+  const dayKey = currentDayKey;
+  clearTimeout(noteDraftTimers[exId]);
+  noteDraftTimers[exId] = setTimeout(async () => {
+    const drafts = await loadNoteDrafts();
+    const k = dayKey + '|' + exId;
+    if (String(text).trim()) drafts[k] = { date: todayStr(), text: String(text).trim().slice(0, 500) };
+    else delete drafts[k];
+    try { await window.storage.set('note-drafts', JSON.stringify(drafts), false); } catch (e) {}
+  }, 500);
+}
+async function clearNoteDrafts(dayKey){
+  Object.values(noteDraftTimers).forEach(clearTimeout);
+  const drafts = await loadNoteDrafts();
+  let changed = false;
+  Object.keys(drafts).forEach(k => { if (k.startsWith(dayKey + '|')){ delete drafts[k]; changed = true; } });
+  if (changed){ try { await window.storage.set('note-drafts', JSON.stringify(drafts), false); } catch (e) {} }
+}
+
 async function renderExercises(){
   const day = DAYS.find(d => d.key === currentDayKey);
   document.getElementById('todayLabel').textContent = new Date().toLocaleDateString('he-IL', innerWidth < 300 ? { weekday: 'short', day: 'numeric', month: 'short' } : { weekday: 'long', day: 'numeric', month: 'long' });
@@ -2053,6 +2083,8 @@ async function renderExercises(){
   document.getElementById('dayMuscles').textContent = day.muscles;
 
   const data = await loadDayData(currentDayKey);
+  const drafts = await loadNoteDrafts();
+  const todayDate = todayStr();
   const list = document.getElementById('exerciseList');
   list.innerHTML = '';
   videoStore = {};
@@ -2066,6 +2098,9 @@ async function renderExercises(){
       if (older) lastForEx = older;
     }
     const pr = data.prs ? data.prs[ex.id] : null;
+    // the note left for this exercise last time: from the saved workout, or a typed note that never reached "סיום"
+    const draft = drafts[currentDayKey + '|' + ex.id];
+    const prevNote = (lastForEx && lastForEx.note) || (draft && draft.date !== todayDate ? draft.text : '');
 
     const card = document.createElement('div');
     card.className = 'card';
@@ -2121,6 +2156,7 @@ async function renderExercises(){
         </label>
       </div>
       <div class="last-note">${lastNoteChips(lastForEx, pr, ex)}</div>
+      ${prevNote ? `<div class="prev-note">📝 <b>מהפעם הקודמת:</b> ${esc(prevNote)}</div>` : ''}
       <div class="stall-note" data-stall="${ex.id}" hidden></div>
       <table class="sets">
         <thead>
@@ -2128,7 +2164,7 @@ async function renderExercises(){
         </thead>
         <tbody>${rows}</tbody>
       </table>
-      <textarea class="ex-note" data-ex="${ex.id}" rows="1" placeholder="${lastForEx && lastForEx.note ? esc(lastForEx.note) : 'הערות לתרגיל (אופציונלי)'}"></textarea>
+      <textarea class="ex-note" data-ex="${ex.id}" rows="1" placeholder="הערה לפעם הבאה (למשל: סט 3 היה קל, לעלות)">${draft && draft.date === todayDate ? esc(draft.text) : ''}</textarea>
       <div class="video-row">
         <video class="preview" id="vpreview-${ex.id}" style="display:none" controls></video>
       </div>
@@ -2239,7 +2275,11 @@ async function renderExercises(){
     card.querySelector('.card-head').addEventListener('click', toggle);
     card.querySelector('.card-summary').addEventListener('click', toggle);
     const note = card.querySelector('.ex-note');
-    note.addEventListener('input', () => card.classList.toggle('has-note', !!note.value.trim()));
+    card.classList.toggle('has-note', !!note.value.trim());
+    note.addEventListener('input', () => {
+      card.classList.toggle('has-note', !!note.value.trim());
+      saveNoteDraftSoon(exId, note.value);
+    });
   });
 
   // restore/refresh per-exercise stopwatch displays after (re)render
@@ -2648,6 +2688,7 @@ function clearForm(){
   document.querySelectorAll('.set-save-btn').forEach(b => b.classList.remove('saved'));
   document.querySelectorAll('.set-idx-btn').forEach(b => b.classList.remove('warmup'));
   document.querySelectorAll('.ex-note').forEach(t => t.value = '');
+  clearNoteDrafts(currentDayKey);
   Object.keys(exerciseTimers).forEach(exId => resetExerciseStopwatch(exId));
   videoStore = {};
   updateLiveVolumeDisplay();
@@ -2775,6 +2816,7 @@ async function saveWorkout(){
 
   const ok = await saveDayData(currentDayKey, data);
   if (ok){
+    await clearNoteDrafts(currentDayKey); // the notes are in the saved workout now
     markTrained(currentDayKey);
     const secs = workoutAccumulated + ((workoutRunning && workoutStartTime) ? Math.floor((Date.now() - workoutStartTime) / 1000) : 0);
     showWorkoutSummary(day, session, data.history[1] || null, newPRs, secs);
@@ -5717,8 +5759,8 @@ document.getElementById('coachOverlay').addEventListener('click', (e) => {
 });
 
 // bump on every change that reaches the phone, and add a line to "History of changes" in CLAUDE.md
-const APP_VERSION = '1.38';
-const APP_VERSION_DATE = '10.10.2026';
+const APP_VERSION = '1.39';
+const APP_VERSION_DATE = '12.10.2026';
 document.getElementById('appVersion').textContent = `גרסה ${APP_VERSION} · ${APP_VERSION_DATE}`;
 
 async function init(){
