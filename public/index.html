@@ -1707,7 +1707,7 @@ const DEFAULT_DAYS = [
       { id: 'shoulder_press_seated', name: 'לחיצת כתפיים בישיבה', target: '8 עד 12 חזרות · RIR 2 · מנוחה 2 דק׳' },
       { id: 'pulldown', name: 'משיכת פולי עליון', target: '8 עד 12 חזרות · RIR 1 עד 2 · מנוחה 90 שנ׳' },
       { id: 'curl', name: 'כפיפת מרפקים בישיבה על ספסל (ראש קצר)', target: '10 עד 15 חזרות · RIR 0 עד 1 · מנוחה 60 עד 90 שנ׳' },
-      { id: 'triceps_ext', name: 'יישור מרפקים בפולי (ראש קצר/רוחבי)', target: '10 עד 15 חזרות · RIR 0 עד 1 · מנוחה 60 עד 90 שנ׳' },
+      { id: 'triceps_ext', name: 'קיקבק עם משקולת (ראש צדדי ופנימי)', target: '10 עד 15 חזרות · RIR 0 עד 1 · מנוחה 60 עד 90 שנ׳' },
     ]
   },
   {
@@ -1816,6 +1816,12 @@ async function applyBarDefaults(){
   let changed = false;
   const lowerB = DAYS.find(d => d.key === 'd4');
   const split = lowerB && lowerB.exercises.find(e => e.id === 'split_squat');
+  // 12.10.2026: in עליון א the user does dumbbell kickbacks, not the cable pushdown of day 5 — rename (same id, history kept)
+  DAYS.forEach(d => d.exercises.forEach(ex => {
+    if (ex.id === 'triceps_ext' && ['יישור מרפקים בפולי (ראש קצר/רוחבי)', 'פשיטת מרפקים אחורית (ראש קצר/רוחבי)'].includes(ex.name)){
+      ex.name = 'קיקבק עם משקולת (ראש צדדי ופנימי)'; changed = true;
+    }
+  }));
   if (split && split.name === SPLIT_OLD_NAME){
     split.name = SPLIT_LEAN.name;
     if (split.target === '8 עד 12 חזרות · RIR 1 עד 2 · מנוחה 2 דק׳') split.target = SPLIT_LEAN.target;
@@ -5762,7 +5768,7 @@ document.getElementById('coachOverlay').addEventListener('click', (e) => {
 });
 
 // bump on every change that reaches the phone, and add a line to "History of changes" in CLAUDE.md
-const APP_VERSION = '1.40';
+const APP_VERSION = '1.41';
 const APP_VERSION_DATE = '12.10.2026';
 document.getElementById('appVersion').textContent = `גרסה ${APP_VERSION} · ${APP_VERSION_DATE}`;
 
