@@ -5558,20 +5558,23 @@ function setLogByDateAll(log){
 const bestE1RM = (sets) => Math.max(0, ...sets.filter(s => s.weight != null).map(s => est1RM(s.weight, s.reps)));
 
 /* The ONE stall rule, used by the exercise card and the coach report.
-   A session's score is its best estimated 1RM (more reps at the same weight also raise it);
-   for a bodyweight move logged without weight, its most reps.
+   A session's score is the AVERAGE over its working sets of weight × (1 + reps/30), with no rep cap,
+   so one more rep in ANY set counts as progress (v1.40 — the best set alone missed reps added to sets 2–3,
+   and est1RM's 12-rep cap missed progress in 12–20 rep exercises). Without weight: average reps.
    stallRun = how many of the latest sessions in a row did not beat the best session before them
    (looking at the last 8). STALL_MIN of them = stuck. */
 const STALL_MIN = 2;
 function sessionScore(sets){
-  const e = bestE1RM(sets);
-  return e > 0 ? e : Math.max(0, ...sets.map(s => Number(s.reps) || 0));
+  const done = sets.filter(s => s && (Number(s.reps) || 0) > 0);
+  if (!done.length) return 0;
+  const val = (s) => Number(s.weight) > 0 ? Number(s.weight) * (1 + Number(s.reps) / 30) : Number(s.reps);
+  return done.reduce((t, s) => t + val(s), 0) / done.length;
 }
 function stallRun(sessions){
   const v = sessions.slice(-8).map(s => sessionScore(s.sets));
   let k = 0;
   for (let i = v.length - 1; i >= 1; i--){
-    if (v[i] <= Math.max(...v.slice(0, i)) * 1.005) k++; else break;
+    if (v[i] <= Math.max(...v.slice(0, i)) * 1.001) k++; else break;
   }
   return k;
 }
@@ -5759,7 +5762,7 @@ document.getElementById('coachOverlay').addEventListener('click', (e) => {
 });
 
 // bump on every change that reaches the phone, and add a line to "History of changes" in CLAUDE.md
-const APP_VERSION = '1.39';
+const APP_VERSION = '1.40';
 const APP_VERSION_DATE = '12.10.2026';
 document.getElementById('appVersion').textContent = `גרסה ${APP_VERSION} · ${APP_VERSION_DATE}`;
 
