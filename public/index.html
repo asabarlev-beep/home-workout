@@ -1717,6 +1717,7 @@ const DEFAULT_DAYS = [
       { id: 'rdl', name: 'דדליפט רומני', target: '8 עד 10 חזרות · RIR 2 · מנוחה 2 עד 3 דק׳' },
       { id: 'sumo_squat_db', name: 'סקוואט סומו (משקולת יד/קטלבל)', target: '10 עד 15 חזרות · RIR 1 עד 2 · מנוחה 90 שנ׳' },
       { id: 'calf_standing', name: 'תאומים בעמידה', target: '10 עד 15 חזרות · RIR 0 עד 1 · מנוחה 60 עד 90 שנ׳' },
+      { id: 'abs_cable', name: 'בטן (כבל)', target: '10 עד 15 חזרות · RIR 1 · מנוחה 60 שנ׳' },
     ]
   },
   {
@@ -1816,6 +1817,16 @@ async function applyBarDefaults(){
   let changed = false;
   const lowerB = DAYS.find(d => d.key === 'd4');
   const split = lowerB && lowerB.exercises.find(e => e.id === 'split_squat');
+  // 12.10.2026: leg raises at the end of תחתון א failed — hip flexors are spent after squats/RDL, so the abs
+  // never got the work. Replaced by the cable abs of תחתון ב (no hip flexion; same id → one progression across both days).
+  const lowerA = DAYS.find(d => d.key === 'd2'), absB = DAYS.find(d => d.key === 'd4')?.exercises.find(e => e.id === 'abs_cable');
+  if (lowerA && !lowerA.exercises.some(e => e.id === 'abs_cable')){
+    const cableAbs = { id: 'abs_cable', name: absB ? absB.name : 'בטן (כבל)', target: absB ? absB.target : '10 עד 15 חזרות · RIR 1 · מנוחה 60 שנ׳' };
+    const legAbs = /הרמ(ת|ות) (רגליים|ברכיים)|leg raise|knee raise/i;
+    const ai = lowerA.exercises.findIndex(e => legAbs.test(e.name || '') || guessMuscle(e.name) === 'בטן');
+    if (ai !== -1) lowerA.exercises.splice(ai, 1, cableAbs); else lowerA.exercises.push(cableAbs);
+    changed = true;
+  }
   // 12.10.2026: in עליון א the user does dumbbell kickbacks, not the cable pushdown of day 5 — rename (same id, history kept)
   DAYS.forEach(d => d.exercises.forEach(ex => {
     if (ex.id === 'triceps_ext' && ['יישור מרפקים בפולי (ראש קצר/רוחבי)', 'פשיטת מרפקים אחורית (ראש קצר/רוחבי)'].includes(ex.name)){
@@ -5314,7 +5325,7 @@ const MUSCLE_GUESS = [
   ['ארבע ראשי', /סקוואט|לאנג|מכרע|פשיטת ברך|לחיצת רגליים|squat|lunge|leg press|leg extension/i],
   ['ישבן', /ישבן|היפ ?טראסט|גשר|hip thrust|glute/i],
   ['תאומים', /תאומים|calf/i],
-  ['בטן', /בטן|קראנץ|פלאנק|abs|crunch|plank/i],
+  ['בטן', /בטן|קראנץ|פלאנק|הרמ(ת|ות) (רגליים|ברכיים)|abs|crunch|plank|leg raise|knee raise/i],
   ['יד אחורית', /יישור מרפק|טרייספס|טריספס|tricep|pushdown|skull/i],
   ['יד קדמית', /כפיפת מרפק|פטיש|יד קדמית|biceps?|curl|hammer/i],
   ['גב', /חתירה|רואו|מתח|משיכ|פולי עליון|גב|row|pull|lat\b|chin/i],
@@ -5768,7 +5779,7 @@ document.getElementById('coachOverlay').addEventListener('click', (e) => {
 });
 
 // bump on every change that reaches the phone, and add a line to "History of changes" in CLAUDE.md
-const APP_VERSION = '1.41';
+const APP_VERSION = '1.42';
 const APP_VERSION_DATE = '12.10.2026';
 document.getElementById('appVersion').textContent = `גרסה ${APP_VERSION} · ${APP_VERSION_DATE}`;
 
