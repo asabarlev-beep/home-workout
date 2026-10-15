@@ -1315,6 +1315,20 @@
   .card.collapsed .card-head .ex-target, .card.collapsed .card-head .ex-works, .card.collapsed .card-head-actions{ display:none; }
   .prev-note{ background:rgba(140,170,255,.08); border:1px solid rgba(140,170,255,.35); color:#c8d4ff; border-radius:10px; padding:7px 10px; font-size:12.5px; line-height:1.45; margin:0 0 10px; }
   .prev-note b{ font-weight:700; }
+  .wk-head{ display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; margin-bottom:12px; }
+  .wk-count{ display:flex; align-items:baseline; gap:8px; flex-wrap:wrap; }
+  .wk-count b{ font-size:34px; font-weight:800; color:var(--accent); line-height:1; }
+  .wk-count span{ color:var(--muted); font-size:14px; }
+  .wk-dots{ display:flex; gap:5px; }
+  .wk-dots i{ width:12px; height:12px; border-radius:50%; background:var(--surface2); border:1px solid var(--line); }
+  .wk-dots i.on{ background:var(--accent); border-color:var(--accent); }
+  .wk-action{ border:1px solid var(--accent); border-radius:14px; padding:12px; margin-bottom:16px; }
+  .wk-action-k{ font-size:12px; color:var(--muted); margin-bottom:2px; }
+  .wk-action-t{ font-size:17px; font-weight:800; line-height:1.35; }
+  .wk-action-w{ font-size:13px; color:var(--text); opacity:.85; margin-top:4px; line-height:1.45; }
+  .wk-stalls{ display:flex; flex-direction:column; gap:8px; margin-bottom:16px; }
+  .wk-stalls > div{ border:1px solid #ffb347; border-radius:10px; padding:8px 10px; font-size:13px; line-height:1.45; }
+  .wk-stalls span{ color:#ffb347; }
   .stall-note{ border:1px solid #ffb347; color:#ffb347; border-radius:10px; padding:7px 10px; font-size:12.5px; line-height:1.45; margin:0 0 10px; }
   .stall-note b{ font-weight:700; }
   .stall-note[hidden]{ display:none; }
@@ -1524,8 +1538,8 @@
       <button class="history-close" id="moreCloseBtn" aria-label="סגור"><i data-ic="x"></i></button>
     </div>
     <div style="padding:10px 18px 24px;display:flex;flex-direction:column;gap:10px;">
+      <button class="reset-btn" id="openWeeklyBtn" style="text-align:right;"><i data-ic="trend"></i> סיכום שבועי — הצעד לשבוע הבא</button>
       <button class="reset-btn" id="openCoachBtn" style="text-align:right;"><i data-ic="trophy"></i> דוח מאמן — שדרוגים</button>
-      <button class="reset-btn" id="openWeeklyBtn" style="text-align:right;"><i data-ic="trend"></i> סיכום שבועי ודילוד</button>
       <button class="reset-btn" id="openBwBtn" style="text-align:right;"><i data-ic="scale"></i> מעקב משקל גוף</button>
       <button class="reset-btn" id="openNutBtn" style="text-align:right;"><i data-ic="apple"></i> יומן תזונה</button>
       <button class="reset-btn" id="openBackupBtn" style="text-align:right;"><i data-ic="swap"></i> גיבוי וייבוא נתונים</button>
@@ -5510,7 +5524,7 @@ async function computeWeightRate(){
   return weightTrend(await loadBodyWeightLog()).rate;
 }
 
-function trendSectionHtml(protein, rate){
+function trendSectionHtml(protein, rate, coach){
   let html = '<div class="trend"><div class="trend-title">תזונה ומשקל · 7 ימים אחרונים</div>';
   if (protein){
     const pct = Math.min(100, Math.round(protein.avg / protein.goal * 100));
@@ -5523,10 +5537,11 @@ function trendSectionHtml(protein, rate){
   }
   if (rate !== null){
     const sign = rate > 0 ? '+' : '';
+    const cal = coach && coach.change ? Math.abs(Math.round(coach.change)).toLocaleString('he-IL') : null;
     const [verdict, color] = rate < WEIGHT_GAIN_TARGET.min
-      ? ['איטי מהיעד. כדאי להוסיף כ-200 קלוריות ביום.', '#ffb347']
+      ? [`איטי מהיעד.${cal ? ` מעקב הקלוריות ממליץ על ${cal}+ ביום.` : ' פרטים במעקב הקלוריות ביומן התזונה.'}`, '#ffb347']
       : rate > WEIGHT_GAIN_TARGET.max
-        ? ['מהיר מהיעד. כדאי להוריד כ-150 קלוריות ביום, כדי לצבור פחות שומן.', '#ffb347']
+        ? [`מהיר מהיעד.${cal ? ` מעקב הקלוריות ממליץ על ${cal}− ביום.` : ' פרטים במעקב הקלוריות ביומן התזונה.'}`, '#ffb347']
         : ['בקצב הנכון 💪', 'var(--accent)'];
     html += `<div class="trend-row" style="margin-top:14px"><span>משקל גוף</span><b><bdi dir="ltr">${sign}${rate.toFixed(2)}</bdi> ק״ג בשבוע</b></div>
       <div class="trend-note">יעד: ${WEIGHT_GAIN_TARGET.min}–${WEIGHT_GAIN_TARGET.max} ק״ג בשבוע · <span style="color:${color}">${verdict}</span></div>`;
@@ -5536,16 +5551,54 @@ function trendSectionHtml(protein, rate){
   return html + '</div>';
 }
 
+// workouts in the last 7 days = dates with at least one working set, across all plan days
+function workoutsThisWeek(timeline){
+  const cutoff = new Date(); cutoff.setHours(0, 0, 0, 0); cutoff.setDate(cutoff.getDate() - 6);
+  const dates = new Set();
+  Object.values(timeline).forEach(list => list.forEach(s => { if (s.date && s.date >= cutoff) dates.add(s.dateStr); }));
+  return dates.size;
+}
+
+// the ONE thing to do next week, by priority: show up → protein → calories → stuck exercise → weak muscle → keep going
+function weeklyAction({ workouts, protein, coach, stalled, totals }){
+  if (workouts < 3) return ['🗓️', 'להגיע ל-4 אימונים לפחות', `השבוע היו ${workouts}. בלי תדירות אין התקדמות — קבע מראש ימים ושעות לשבוע הבא.`];
+  if (protein && protein.avg < protein.goal * 0.85) return ['🥩', `חלבון: להגיע ל-${protein.goal} ג׳ ביום`, `הממוצע השבוע ${Math.round(protein.avg)} ג׳. הוסף מנה של 30–40 ג׳ (יוגורט חלבון, קוטג׳, שייק) בארוחה שבה אתה הכי חסר.`];
+  if (coach && coach.target !== undefined && coach.change) return ['🔥', `יעד קלוריות חדש: ${Math.round(coach.target).toLocaleString('he-IL')}`, coach.change > 0 ? 'המשקל עולה לאט מדי. הוסף את ההפרש בפחמימות סביב האימון.' : 'המשקל עולה מהר מדי. הורד שומן מוסף ונשנושים, לא חלבון.'];
+  if (stalled.length) return ['⚠️', `לשבור את הקיפאון ב${stalled[0].name}`, `${stalled[0].todo}.${stalled.length > 1 ? ` עוד ${stalled.length - 1} תרגילים תקועים — ברשימה למטה.` : ''}`];
+  const weak = MAJOR_MUSCLES.find(m => (totals[m] || 0) > 0 && totals[m] < 10);
+  if (weak) return ['➕', `${weak}: להוסיף סט`, `רק ${totals[weak]} סטים השבוע (יעד 10–20). הוסף סט אחד לתרגיל הראשי של השריר הזה.`];
+  return ['💪', 'להמשיך בדיוק ככה', 'אימונים, חלבון וקצב המשקל בסדר. בשבוע הבא: חזרה אחת או משקל אחד יותר בכל תרגיל.'];
+}
+
 async function renderWeekly(){
-  const trend = trendSectionHtml(await computeProteinWeek(), await computeWeightRate());
+  const protein = await computeProteinWeek();
+  let coach = null;
+  try { coach = await computeCalorieCoach(); } catch (e) {}
+  const trend = trendSectionHtml(protein, await computeWeightRate(), coach);
   const totals = await computeWeeklyVolume();
   const week = blockWeek();
+  let timeline = {};
+  try { timeline = await exerciseTimeline(); } catch (e) {}
+  const workouts = workoutsThisWeek(timeline);
+  const stalled = [];
+  DAYS.forEach(d => activeExercises(d).forEach(ex => {
+    if (stalled.some(x => x.id === ex.id)) return;
+    const st = stallInfo(ex, timeline);
+    if (st.stuck) stalled.push({ id: ex.id, name: ex.name, ...st });
+  }));
+  const [icon, actTitle, actWhy] = weeklyAction({ workouts, protein, coach, stalled, totals });
+  const head = `<div class="wk-head">
+      <div class="wk-count"><b><bdi>${workouts}</bdi></b><span>מתוך ${PLANNED_PER_WEEK} אימונים</span></div>
+      <div class="wk-dots">${Array.from({ length: PLANNED_PER_WEEK }, (_, i) => `<i class="${i < workouts ? 'on' : ''}"></i>`).join('')}</div>
+    </div>
+    <div class="wk-action"><div class="wk-action-k">הצעד לשבוע הבא</div><div class="wk-action-t">${icon} ${actTitle}</div><div class="wk-action-w">${actWhy}</div></div>
+    ${stalled.length ? `<div class="trend-title" style="margin-top:4px">תרגילים תקועים</div><div class="wk-stalls">${stalled.map(x => `<div><b>${esc(x.name)}</b> · ${x.k} אימונים<br><span>${x.todo}</span></div>`).join('')}</div>` : ''}`;
   const rows = MUSCLE_ORDER.filter(m => totals[m]).map(m => {
     const n = totals[m];
     const [txt, color] = m === 'אחר' ? ['', 'var(--muted)'] : n < 10 ? ['מתחת ל-10', 'var(--accent)'] : n <= 20 ? ['בטווח', '#6fd08c'] : ['מעל 20', 'var(--danger)'];
     return `<tr><td>${m}</td><td style="text-align:center;font-weight:800">${n}</td><td style="color:${color}">${txt}</td></tr>`;
   }).join('');
-  document.getElementById('weeklyBody').innerHTML = `${trend}
+  document.getElementById('weeklyBody').innerHTML = `${head}${trend}
     <div class="trend-title" style="margin-top:4px">סטים לשריר</div>
     <p style="color:var(--muted);font-size:13px;margin:0 0 10px">סטים עובדים (בלי חימום) ב-7 הימים האחרונים. יעד: 10 עד 20 לשריר בשבוע. ידיים ותאומים מקבלים גם עבודה עקיפה, אז מתחת ל-10 ישיר זה לא בהכרח בעיה.</p>
     ${rows ? `<table style="width:100%;border-collapse:collapse;font-size:14px"><thead><tr style="color:var(--muted);text-align:right"><th style="text-align:right">שריר</th><th>סטים</th><th style="text-align:right">מצב</th></tr></thead><tbody>${rows}</tbody></table>` : '<div style="color:var(--muted);padding:12px 0">עדיין אין סטים שמורים בשבוע האחרון.</div>'}
@@ -5650,31 +5703,36 @@ function stallRun(sessions){
 }
 
 // orange note on the card of an exercise that is stuck, with one thing to do about it today
+// is this exercise stuck, and what to do about it (finished sessions only — today's half-done workout is not a stall)
+function stallInfo(ex, timeline){
+  const today = todayStr();
+  const sessions = (timeline[ex.id] || []).filter(s => s.dateStr !== today)
+    .map(s => ({ ...s, sets: s.sets.filter(x => !(x.reps != null && x.reps > 40)) })).filter(s => s.sets.length);
+  const k = sessions.length >= 3 ? stallRun(sessions) : 0;
+  const last = sessions[sessions.length - 1];
+  const next = last ? nextWeightSuggestion(ex, { sets: last.sets }) : null;
+  if (!(k >= STALL_MIN && !(next && next.kind === 'up'))) return { stuck: false, k };
+  const range = repRange(ex.target);
+  const reps = last.sets.map(x => x.reps).filter(r => r != null);
+  let todo;
+  if (k >= 4) todo = 'הגיע הזמן לשנות: וריאציה אחרת (משקולות ↔ כבל) או סט נוסף';
+  else if (range && reps.length && reps.every(r => r >= range.hi)) todo = 'לעלות במשקל ולהתחיל מתחתית הטווח';
+  else todo = 'חזרה אחת יותר באותו משקל, בסט הראשון';
+  return { stuck: true, k, todo };
+}
+
 async function renderStallNotes(){
   let timeline;
   try { timeline = await exerciseTimeline(); } catch (e) { return; }
-  const today = todayStr();
   const day = DAYS.find(d => d.key === currentDayKey);
   if (!day) return;
   day.exercises.forEach(ex => {
     const box = document.querySelector(`.stall-note[data-stall="${ex.id}"]`);
     if (!box) return;
-    // finished sessions only: today's half-done workout is not a stall
-    const sessions = (timeline[ex.id] || []).filter(s => s.dateStr !== today)
-      .map(s => ({ ...s, sets: s.sets.filter(x => !(x.reps != null && x.reps > 40)) })).filter(s => s.sets.length);
-    const k = sessions.length >= 3 ? stallRun(sessions) : 0;
-    const last = sessions[sessions.length - 1];
-    const next = last ? nextWeightSuggestion(ex, { sets: last.sets }) : null;
-    const stuck = k >= STALL_MIN && !(next && next.kind === 'up');
-    box.closest('.card')?.classList.toggle('stalled', stuck);
-    if (!stuck){ box.hidden = true; box.innerHTML = ''; return; }
-    const range = repRange(ex.target);
-    const reps = last.sets.map(x => x.reps).filter(r => r != null);
-    let todo;
-    if (k >= 4) todo = 'הגיע הזמן לשנות: וריאציה אחרת (משקולות ↔ כבל) או סט נוסף';
-    else if (range && reps.length && reps.every(r => r >= range.hi)) todo = 'היום: לעלות במשקל ולהתחיל מתחתית הטווח';
-    else todo = 'היום: חזרה אחת יותר באותו משקל, בסט הראשון';
-    box.innerHTML = `⚠️ <b>אין שיפור ב-${k} אימונים</b><br>${todo}`;
+    const st = stallInfo(ex, timeline);
+    box.closest('.card')?.classList.toggle('stalled', st.stuck);
+    if (!st.stuck){ box.hidden = true; box.innerHTML = ''; return; }
+    box.innerHTML = `⚠️ <b>אין שיפור ב-${st.k} אימונים</b><br>היום: ${st.todo}`;
     box.hidden = false;
   });
 }
@@ -5832,7 +5890,7 @@ document.getElementById('coachOverlay').addEventListener('click', (e) => {
 });
 
 // bump on every change that reaches the phone, and add a line to "History of changes" in CLAUDE.md
-const APP_VERSION = '1.45';
+const APP_VERSION = '1.46';
 const APP_VERSION_DATE = '15.10.2026';
 document.getElementById('appVersion').textContent = `גרסה ${APP_VERSION} · ${APP_VERSION_DATE}`;
 
@@ -5847,6 +5905,25 @@ async function init(){
   resetWorkoutClock();
   renderTodayStrip();
   setTimeout(() => { maybeWeeklyBackup(); }, 4000);
+  setTimeout(() => { maybeShowWeekly(); }, 1500);
+}
+
+// the weekly summary opens by itself once a week — on the first open between Saturday 18:00 and Monday night.
+// 'weekly-seen' holds the Saturday of the last week shown.
+async function maybeShowWeekly(){
+  const now = new Date();
+  const sat = new Date(now); sat.setHours(0, 0, 0, 0);
+  sat.setDate(sat.getDate() - ((sat.getDay() + 1) % 7)); // the latest Saturday (today if Saturday)
+  if (now.getDay() === 6 && now.getHours() < 18) return;
+  if ((now - sat) / 86400000 >= 3) return; // only Saturday evening to Monday — by Tuesday it is old news
+  const key = isoDate(sat);
+  let seen = null;
+  try { const r = await window.storage.get('weekly-seen', false); seen = r && r.value; } catch (e) {}
+  if (seen === key) return;
+  if (document.querySelector('.history-overlay.open')) return; // never on top of something the user is doing
+  try { await window.storage.set('weekly-seen', key, false); } catch (e) {}
+  await renderWeekly();
+  document.getElementById('weeklyOverlay').classList.add('open');
 }
 init();
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
