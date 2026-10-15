@@ -1734,7 +1734,7 @@ const DEFAULT_DAYS = [
     key: 'd2', order: 2, label: 'תחתון א', muscles: 'רגליים — דגש על ארבע ראשי וירך אחורית',
     exercises: [
       { id: 'squat', name: 'סקוואט', target: '6 עד 10 חזרות · RIR 2 · מנוחה 2 עד 3 דק׳' },
-      { id: 'rdl', name: 'דדליפט רומני', target: '8 עד 10 חזרות · RIR 2 · מנוחה 2 עד 3 דק׳' },
+      { id: 'rdl', name: 'דדליפט רומני', target: '8 עד 10 חזרות · RIR 2 · מנוחה 2 עד 3 דק׳', sets: 4 },
       { id: 'sumo_squat_db', name: 'סקוואט סומו (משקולת יד/קטלבל)', target: '10 עד 15 חזרות · RIR 1 עד 2 · מנוחה 90 שנ׳' },
       { id: 'calf_standing', name: 'תאומים בעמידה', target: '10 עד 15 חזרות · RIR 0 עד 1 · מנוחה 60 עד 90 שנ׳' },
       { id: 'abs_cable', name: 'בטן (כבל)', target: '10 עד 15 חזרות · RIR 1 · מנוחה 60 שנ׳' },
@@ -1755,7 +1755,7 @@ const DEFAULT_DAYS = [
     exercises: [
       { id: 'split_squat', name: 'ספליט סקוואט בהטיה קדימה (ישבן)', target: '8 עד 12 חזרות · גו נוטה קדימה, שוק אנכית · RIR 1 עד 2 · מנוחה 2 דק׳' },
       { id: 'goblet_squat', name: 'גובלט סקוואט (משקולת יד/קטלבל)', target: '8 עד 12 חזרות · RIR 2 · מנוחה 2 דק׳' },
-      { id: 'leg_curl_standing_cable', name: 'כפיפת ברך בכבל בעמידה', target: '10 עד 15 חזרות · RIR 0 עד 1 · מנוחה 90 שנ׳' },
+      { id: 'rdl_db', name: 'דדליפט רומני עם משקולות', target: '8 עד 12 חזרות · RIR 1 עד 2 · מנוחה 2 דק׳', sets: 4 },
       { id: 'calf_seated', name: 'תאומים בישיבה', target: '12 עד 20 חזרות · RIR 0 עד 1 · מנוחה 60 עד 90 שנ׳' },
       { id: 'abs_cable', name: 'בטן (כבל)', target: '10 עד 15 חזרות · RIR 1 · מנוחה 60 שנ׳' },
     ]
@@ -1837,6 +1837,18 @@ async function applyBarDefaults(){
   let changed = false;
   const lowerB = DAYS.find(d => d.key === 'd4');
   const split = lowerB && lowerB.exercises.find(e => e.id === 'split_squat');
+  // 15.10.2026: hamstrings got ~6 working sets a week. No leg-curl machine and the user dislikes the cable curl, so:
+  // RDL in תחתון א → 4 sets, and in תחתון ב the cable curl is replaced by a dumbbell RDL (4 sets) → ~8 hinge sets twice a week.
+  // Runs once: only while תחתון ב has no rdl_db. Cable-curl history keeps its id.
+  const RDL_DB = { id: 'rdl_db', name: 'דדליפט רומני עם משקולות', target: '8 עד 12 חזרות · RIR 1 עד 2 · מנוחה 2 דק׳', sets: 4 };
+  const lB = DAYS.find(d => d.key === 'd4'), lA = DAYS.find(d => d.key === 'd2');
+  if (lB && !lB.exercises.some(e => e.id === 'rdl_db')){
+    const ci = lB.exercises.findIndex(e => e.id === 'leg_curl_standing_cable');
+    if (ci !== -1) lB.exercises.splice(ci, 1, { ...RDL_DB }); else lB.exercises.push({ ...RDL_DB });
+    const rdlA = lA && lA.exercises.find(e => e.id === 'rdl');
+    if (rdlA && !(rdlA.sets >= 4)) rdlA.sets = 4;
+    changed = true;
+  }
   // 12.10.2026: leg raises at the end of תחתון א failed — hip flexors are spent after squats/RDL, so the abs
   // never got the work. Replaced by the cable abs of תחתון ב (no hip flexion; same id → one progression across both days).
   const lowerA = DAYS.find(d => d.key === 'd2'), absB = DAYS.find(d => d.key === 'd4')?.exercises.find(e => e.id === 'abs_cable');
@@ -5320,7 +5332,7 @@ const MUSCLE_OF = {
   triceps_ext: 'יד אחורית', triceps_overhead: 'יד אחורית', triceps_pushdown: 'יד אחורית',
   tricep_long: 'יד אחורית', tricep_short: 'יד אחורית', tricep_mid: 'יד אחורית',
   squat: 'ארבע ראשי', goblet_squat: 'ארבע ראשי', split_squat: 'ישבן',
-  rdl: 'ירך אחורית', sumo_squat_db: 'ישבן', leg_curl_standing_cable: 'ירך אחורית',
+  rdl: 'ירך אחורית', rdl_db: 'ירך אחורית', sumo_squat_db: 'ישבן', leg_curl_standing_cable: 'ירך אחורית',
   calf_standing: 'תאומים', calf_seated: 'תאומים',
   abs_cable: 'בטן', abs: 'בטן',
 };
@@ -5348,6 +5360,7 @@ const WORKS_ON = {
   split_squat: 'ישבן · ארבע ראשי · מקרבים',
   sumo_squat_db: 'ישבן · מקרבים · ארבע ראשי',
   rdl: 'ירך אחורית · ישבן · גב תחתון',
+  rdl_db: 'ירך אחורית · ישבן · גב תחתון',
   leg_curl_standing_cable: 'ירך אחורית',
   calf_standing: 'תאומים · השריר הגדול',
   calf_seated: 'תאומים · השריר העמוק (סולאוס)',
@@ -5819,7 +5832,7 @@ document.getElementById('coachOverlay').addEventListener('click', (e) => {
 });
 
 // bump on every change that reaches the phone, and add a line to "History of changes" in CLAUDE.md
-const APP_VERSION = '1.44';
+const APP_VERSION = '1.45';
 const APP_VERSION_DATE = '15.10.2026';
 document.getElementById('appVersion').textContent = `גרסה ${APP_VERSION} · ${APP_VERSION_DATE}`;
 
