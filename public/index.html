@@ -978,6 +978,13 @@
   .nut-ring-inner span{ font-size:11px; color:var(--muted); }
   .nut-ring-title{ font-size:16px; font-weight:800; }
   .nut-ring-left{ font-size:13.5px; color:var(--muted); margin-top:2px; }
+  .nut-protein{ flex-wrap:wrap; }
+  .nut-ring-text{ flex:1 1 0; min-width:0; }
+  .nut-pace{ font-size:12.5px; margin-top:4px; line-height:1.4; font-weight:600; }
+  .nut-pace.ok{ color:var(--accent); }
+  .nut-pace.behind{ color:#ffb347; }
+  .nut-pace-sugg{ flex:1 0 100%; display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin-top:10px; font-size:12.5px; color:var(--muted); }
+  .nut-pace-sugg button{ background:rgba(255,179,71,.12); border:1px solid rgba(255,179,71,.45); color:var(--text); border-radius:999px; padding:6px 11px; font-size:13px; font-family:inherit; cursor:pointer; }
   .nut-totals{ gap:6px; }
   .nut-total-item{ background:var(--bg); padding:9px 4px; }
   .nut-total-val{ font-size:17px; font-weight:800; }
@@ -1360,6 +1367,8 @@
   .ts-bar{ flex:0 0 100%; height:4px; border-radius:99px; background:var(--surface2); overflow:hidden; }
   .ts-bar i{ display:block; height:100%; width:0; border-radius:99px; background:#ffb347; transition:width .3s; }
   .ts-chip.done .ts-bar i{ background:var(--accent); }
+  #tsProtein:not(.behind) .ts-bar i{ background:var(--accent); }
+  #tsProtein.behind .ic{ color:#ffb347; }
   .ts-chip.done .ic{ color:var(--accent); }
   .ts-chip.stale .ic{ color:#ffb347; }
 
@@ -3780,6 +3789,8 @@ async function renderTodayStrip(){
     pchip.querySelector('.ts-text').innerHTML = `חלבון <b>${Math.round(pro)}</b>/${target}`;
     pchip.querySelector('.ts-bar i').style.width = pct + '%';
     pchip.classList.toggle('done', pct >= 100);
+    const pace = pct < 100 ? proteinPace(pro, target) : null;
+    pchip.classList.toggle('behind', !!(pace && pace.behind >= 10));
 
     const log = await loadBodyWeightLog();
     const wchip = document.getElementById('tsWeight');
@@ -4498,11 +4509,44 @@ function closeMealBuilder(){
 
 const DEFAULT_PROTEIN_GOAL = 120;
 
+/* ---------------- protein pace through the day ----------------
+   Share of the daily protein goal you would expect by a given hour, assuming 4 meals:
+   07:00 0% · 10:00 25% · 14:00 55% · 19:00 85% · 21:30 100% (straight lines between). */
+const PROTEIN_PACE = [[7, 0], [10, 0.25], [14, 0.55], [19, 0.85], [21.5, 1]];
+function proteinPaceShare(date){
+  const h = date.getHours() + date.getMinutes() / 60;
+  if (h <= PROTEIN_PACE[0][0]) return 0;
+  for (let i = 1; i < PROTEIN_PACE.length; i++){
+    const [h0, p0] = PROTEIN_PACE[i - 1], [h1, p1] = PROTEIN_PACE[i];
+    if (h <= h1) return p0 + (p1 - p0) * (h - h0) / (h1 - h0);
+  }
+  return 1;
+}
+// expected-by-now and how far behind; null when it is not today
+function proteinPace(protein, target, forDate){
+  const now = new Date();
+  if (isoDate(forDate || now) !== isoDate(now)) return null;
+  const expected = Math.round(target * proteinPaceShare(now));
+  if (!expected) return null; // before breakfast there is no pace yet
+  return { expected, behind: Math.max(0, Math.round(expected - protein)) };
+}
+// quick high-protein foods to close the gap: the two whose one serving is closest to it
+const PROTEIN_STAPLES = ["קוטג' 5%", 'יוגורט חלבון', 'טונה במים', 'חזה עוף', 'ביצה', 'אבקת חלבון'];
+function proteinSuggestions(gap){
+  const foods = PROTEIN_STAPLES.map(n => FOOD_LIST.find(f => f.name === n)).filter(Boolean);
+  // closest to the gap first, real food before powder on a tie
+  const useful = foods.filter(f => f.protein >= Math.min(gap * 0.6, 15)); // an egg (8 ג׳) is not an answer to a 15 ג׳ gap
+  return (useful.length ? useful : foods).map((f, i) => ({ f, d: Math.abs(f.protein - gap) + i * 0.01 })).sort((a, b) => a.d - b.d).slice(0, 2).map(x => x.f);
+}
+
 function renderProteinBar(protein, goal){
   const target = goal || DEFAULT_PROTEIN_GOAL;
   const pct = Math.min(100, Math.round(protein / target * 100));
   const left = Math.max(0, Math.round(target - protein));
-  const color = pct >= 100 ? 'var(--accent)' : pct >= 60 ? '#ffb347' : 'var(--danger)';
+  const pace = left ? proteinPace(protein, target, nutritionDate) : null;
+  const behind = pace && pace.behind >= 10;
+  const color = pct >= 100 ? 'var(--accent)' : behind ? '#ffb347' : pace ? 'var(--accent)' : pct >= 60 ? '#ffb347' : 'var(--danger)';
+  const sugg = behind ? proteinSuggestions(pace.behind) : [];
   document.getElementById('nutProtein').innerHTML = `
     <div class="nut-ring" style="background:conic-gradient(${color} 0 ${pct}%, var(--bg) ${pct}% 100%);">
       <div class="nut-ring-inner"><b>${Math.round(protein)}</b><span>מתוך ${target}</span></div>
@@ -4510,7 +4554,13 @@ function renderProteinBar(protein, goal){
     <div class="nut-ring-text">
       <div class="nut-ring-title">חלבון היום</div>
       <div class="nut-ring-left">${left ? `נשארו ${left} גרם` : 'הגעת ליעד 💪'}</div>
-    </div>`;
+      ${pace ? `<div class="nut-pace ${behind ? 'behind' : 'ok'}">${behind ? `מאחור ב-<bdi>${pace.behind}</bdi> ג׳ · עד עכשיו צפוי <bdi>${pace.expected}</bdi>` : `✓ בקצב · עד עכשיו צפוי <bdi>${pace.expected}</bdi>`}</div>` : ''}
+    </div>
+    ${sugg.length ? `<div class="nut-pace-sugg"><span>לסגור את הפער:</span>${sugg.map((f, i) => `<button type="button" data-sugg="${i}">${esc(f.name)} · <bdi>${Math.round(f.protein)}</bdi> ג׳</button>`).join('')}</div>` : ''}`;
+  document.querySelectorAll('#nutProtein [data-sugg]').forEach(btn => btn.addEventListener('click', () => {
+    pickFood(sugg[Number(btn.dataset.sugg)]);
+    document.getElementById('nutNameInput').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }));
 }
 
 async function deleteNutritionEntry(idx){
@@ -5900,7 +5950,7 @@ document.getElementById('coachOverlay').addEventListener('click', (e) => {
 });
 
 // bump on every change that reaches the phone, and add a line to "History of changes" in CLAUDE.md
-const APP_VERSION = '1.46';
+const APP_VERSION = '1.47';
 const APP_VERSION_DATE = '15.10.2026';
 document.getElementById('appVersion').textContent = `גרסה ${APP_VERSION} · ${APP_VERSION_DATE}`;
 
