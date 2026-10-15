@@ -1012,6 +1012,18 @@
   .nut-total-item .nut-total-val{ font-size:18px; white-space:nowrap; }
   .nut-total-val small{ font-size:11.5px; font-weight:600; color:var(--muted); }
   .nut-totals{ display:grid; grid-template-columns:1fr 1fr; }
+  .nut-total-item.wide{ cursor:pointer; }
+  .nut-goal{ margin-bottom:10px; background:var(--surface2); border-radius:12px; padding:10px 12px; }
+  .nut-goal summary{ display:flex; flex-wrap:wrap; align-items:center; gap:4px 8px; cursor:pointer; font-size:13.5px; list-style:none; }
+  .nut-goal summary::-webkit-details-marker{ display:none; }
+  .nut-goal summary > span:first-child{ font-weight:700; }
+  #nutGoalSummary{ color:var(--muted); }
+  .nut-goal-edit{ margin-inline-start:auto; color:var(--accent); font-weight:700; }
+  .nut-goal[open] .nut-goal-edit{ display:none; }
+  .nut-goal-fields{ display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:10px; }
+  .nut-goal-fields label{ display:flex; flex-direction:column; gap:3px; font-size:12px; color:var(--muted); min-width:0; }
+  .nut-goal-fields input{ width:100%; min-width:0; background:var(--bg); border:1px solid transparent; color:var(--text); border-radius:10px; padding:9px 8px; font-size:16px; text-align:center; }
+  .nut-goal-fields input:focus{ outline:none; border-color:var(--accent); }
   .nut-total-item.wide{ grid-column:1 / -1; }
   .nut-total-main{ display:flex; align-items:baseline; gap:6px; flex-wrap:wrap; }
   .nut-total-main b{ font-size:20px; font-weight:800; line-height:1.15; }
@@ -1630,13 +1642,13 @@
       <div class="nut-recent" id="nutRecent"></div>
       <div class="nut-meals" id="nutMeals"></div>
       <div class="nut-meal-builder" id="nutMealBuilder" hidden></div>
-      <details style="margin-bottom:10px;">
-        <summary style="color:var(--muted);font-size:13px;cursor:pointer;"><i data-ic="target"></i> הגדרת יעד יומי</summary>
-        <div class="add-ex-row" style="flex-wrap:wrap;gap:6px;margin-top:8px;">
-          <input type="number" id="goalCalInput" placeholder="יעד קלוריות" style="flex:1;min-width:100px;">
-          <input type="number" id="goalProInput" placeholder="יעד חלבון" style="flex:1;min-width:100px;">
-          <input type="number" id="goalCarbInput" placeholder="יעד פחמימות" style="flex:1;min-width:100px;">
-          <input type="number" id="goalFatInput" placeholder="יעד שומן" style="flex:1;min-width:100px;">
+      <details class="nut-goal" id="nutGoalBox">
+        <summary><span>🎯 יעד יומי</span><span id="nutGoalSummary"></span><span class="nut-goal-edit">שינוי</span></summary>
+        <div class="nut-goal-fields">
+          <label><span>קלוריות</span><input type="number" inputmode="numeric" id="goalCalInput" placeholder="—"></label>
+          <label><span>חלבון ג׳</span><input type="number" inputmode="numeric" id="goalProInput" placeholder="—"></label>
+          <label><span>פחמימות ג׳</span><input type="number" inputmode="numeric" id="goalCarbInput" placeholder="—"></label>
+          <label><span>שומן ג׳</span><input type="number" inputmode="numeric" id="goalFatInput" placeholder="—"></label>
         </div>
         <button class="reset-btn" id="goalSaveBtn" style="width:100%;margin-top:8px;">שמור יעד</button>
       </details>
@@ -4480,6 +4492,7 @@ async function saveNutritionGoalFromInputs(){
     fat: document.getElementById('goalFatInput').value ? Number(document.getElementById('goalFatInput').value) : null,
   };
   await saveNutritionGoal(goal);
+  document.getElementById('nutGoalBox').open = false;
   showToast('היעד נשמר ✓');
   renderNutritionPanel();
 }
@@ -4552,7 +4565,9 @@ async function renderCalorieCoach(){
   let verdict;
   if (c.change === 0){
     verdict = `<div class="cc-verdict" style="border-color:var(--accent)"><span class="big" style="color:var(--accent)">להמשיך ככה ✓</span>
-      המשקל עולה בקצב הנכון לבניית שריר (${WEIGHT_GAIN_TARGET.min}–${WEIGHT_GAIN_TARGET.max} ק״ג בשבוע). נשאר על כ-${num(c.intake)} קלוריות ביום.</div>`;
+      המשקל עולה בקצב הנכון לבניית שריר (${WEIGHT_GAIN_TARGET.min}–${WEIGHT_GAIN_TARGET.max} ק״ג בשבוע). נשאר על כ-${num(c.intake)} קלוריות ביום.</div>
+      ${goal.calories && Math.abs(goal.calories - c.target) < 100 ? '' : `<div class="cc-note">${goal.calories ? `היעד השמור שלך הוא <b>${num(goal.calories)}</b>, ${goal.calories < c.target ? 'נמוך' : 'גבוה'} ממה שעובד לך בפועל.` : 'עדיין אין יעד קלוריות שמור.'}</div>
+      <button class="save-btn" id="calApplyBtn">קבע ${num(c.target)} כיעד היומי</button>`}`;
   } else {
     const up = c.change > 0;
     const color = '#ffb347';
@@ -4612,6 +4627,17 @@ async function renderNutritionPanel(){
   document.getElementById('nutTotals').innerHTML =
     tile(totals.calories, goal.calories, 'קלוריות', 'קל׳', true) + tile(totals.carbs, goal.carbs, 'פחמימות', 'ג׳') + tile(totals.fat, goal.fat, 'שומן', 'ג׳');
 
+  document.getElementById('nutGoalSummary').innerHTML = [
+    goal.calories ? `<bdi>${num(goal.calories)}</bdi> קל׳` : 'בלי יעד קלוריות',
+    goal.protein ? `<bdi>${num(goal.protein)}</bdi> ג׳ חלבון` : ''].filter(Boolean).join(' · ');
+  // tapping the calories tile opens the goal so it can be changed right there
+  const calTile = document.querySelector('#nutTotals .nut-total-item.wide');
+  if (calTile) calTile.addEventListener('click', () => {
+    const box = document.getElementById('nutGoalBox');
+    box.open = true;
+    box.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setTimeout(() => document.getElementById('goalCalInput').focus(), 350);
+  });
   document.getElementById('goalCalInput').value = goal.calories ?? '';
   document.getElementById('goalProInput').value = goal.protein ?? '';
   document.getElementById('goalCarbInput').value = goal.carbs ?? '';
@@ -5793,7 +5819,7 @@ document.getElementById('coachOverlay').addEventListener('click', (e) => {
 });
 
 // bump on every change that reaches the phone, and add a line to "History of changes" in CLAUDE.md
-const APP_VERSION = '1.43';
+const APP_VERSION = '1.44';
 const APP_VERSION_DATE = '15.10.2026';
 document.getElementById('appVersion').textContent = `גרסה ${APP_VERSION} · ${APP_VERSION_DATE}`;
 
