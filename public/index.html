@@ -981,6 +981,7 @@
   .nut-protein{ flex-wrap:wrap; }
   .nut-ring-text{ flex:1 1 0; min-width:0; }
   .nut-pace{ font-size:12.5px; margin-top:4px; line-height:1.4; font-weight:600; }
+  .nut-pace small{ font-size:12px; font-weight:400; color:var(--muted); }
   .nut-pace.ok{ color:var(--accent); }
   .nut-pace.behind{ color:#ffb347; }
   .nut-pace-sugg{ flex:1 0 100%; display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin-top:10px; font-size:12.5px; color:var(--muted); }
@@ -4554,7 +4555,7 @@ function renderProteinBar(protein, goal){
     <div class="nut-ring-text">
       <div class="nut-ring-title">חלבון היום</div>
       <div class="nut-ring-left">${left ? `נשארו ${left} גרם` : 'הגעת ליעד 💪'}</div>
-      ${pace ? `<div class="nut-pace ${behind ? 'behind' : 'ok'}">${behind ? `מאחור ב-<bdi>${pace.behind}</bdi> ג׳ · עד עכשיו צפוי <bdi>${pace.expected}</bdi>` : `✓ בקצב · עד עכשיו צפוי <bdi>${pace.expected}</bdi>`}</div>` : ''}
+      ${pace ? `<div class="nut-pace ${behind ? 'behind' : 'ok'}">${behind ? `מאחור ב-<bdi>${pace.behind}</bdi> ג׳` : '✓ בקצב'}<br><small>עד עכשיו צפוי <bdi>${pace.expected}</bdi></small></div>` : ''}
     </div>
     ${sugg.length ? `<div class="nut-pace-sugg"><span>לסגור את הפער:</span>${sugg.map((f, i) => `<button type="button" data-sugg="${i}">${esc(f.name)} · <bdi>${Math.round(f.protein)}</bdi> ג׳</button>`).join('')}</div>` : ''}`;
   document.querySelectorAll('#nutProtein [data-sugg]').forEach(btn => btn.addEventListener('click', () => {
@@ -5950,7 +5951,7 @@ document.getElementById('coachOverlay').addEventListener('click', (e) => {
 });
 
 // bump on every change that reaches the phone, and add a line to "History of changes" in CLAUDE.md
-const APP_VERSION = '1.47';
+const APP_VERSION = '1.48';
 const APP_VERSION_DATE = '15.10.2026';
 document.getElementById('appVersion').textContent = `גרסה ${APP_VERSION} · ${APP_VERSION_DATE}`;
 
