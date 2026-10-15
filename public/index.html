@@ -1011,6 +1011,14 @@
   .nut-total-item .nut-total-label{ margin:0; font-size:12px; white-space:nowrap; }
   .nut-total-item .nut-total-val{ font-size:18px; white-space:nowrap; }
   .nut-total-val small{ font-size:11.5px; font-weight:600; color:var(--muted); }
+  .nut-totals{ display:grid; grid-template-columns:1fr 1fr; }
+  .nut-total-item.wide{ grid-column:1 / -1; }
+  .nut-total-main{ display:flex; align-items:baseline; gap:6px; flex-wrap:wrap; }
+  .nut-total-main b{ font-size:20px; font-weight:800; line-height:1.15; }
+  .nut-total-item.wide .nut-total-main b{ font-size:26px; }
+  .nut-total-main b.over{ color:#ffb347; }
+  .nut-total-main em{ font-style:normal; font-size:12.5px; color:var(--muted); font-weight:600; }
+  .nut-total-sub{ font-size:12px; color:var(--muted); line-height:1.35; }
   .nut-total-track{ display:block; height:5px; border-radius:99px; background:var(--surface2); overflow:hidden; margin-top:4px; }
   .nut-total-track i{ display:block; height:100%; border-radius:99px; background:var(--accent); }
   .nut-meal-group{ background:var(--bg); border-radius:16px; padding:4px 12px; margin-bottom:10px; }
@@ -4586,17 +4594,23 @@ async function renderNutritionPanel(){
   renderMeals();
 
   const num = (v) => Math.round(v).toLocaleString('he-IL');
-  const tile = (val, goalVal, label) => {
+  // the big number is what is LEFT for the day (or how much over); eaten / goal is the small line under it
+  const tile = (val, goalVal, label, unit, wide) => {
     const pct = goalVal ? Math.min(100, Math.round(val / goalVal * 100)) : 0;
     const over = goalVal && val > goalVal * 1.05;
-    return `<div class="nut-total-item">
+    const left = goalVal ? goalVal - val : null;
+    const main = !goalVal ? `<b><bdi>${num(val)}</bdi></b><em>${unit}</em>`
+      : left >= 0 ? `<em>נשארו</em><b><bdi>${num(left)}</bdi></b>`
+      : `<em>עברת ב־</em><b class="over"><bdi>${num(-left)}</bdi></b>`;
+    return `<div class="nut-total-item${wide ? ' wide' : ''}">
       <span class="nut-total-label">${label}</span>
-      <span class="nut-total-val">${num(val)}${goalVal ? `<small> / ${num(goalVal)}</small>` : ''}</span>
+      <span class="nut-total-main">${main}</span>
+      <span class="nut-total-sub">${goalVal ? `אכלת <bdi>${num(val)}</bdi> מתוך <bdi>${num(goalVal)}</bdi>` : 'אין יעד'}</span>
       ${goalVal ? `<span class="nut-total-track"><i style="width:${pct}%;${over ? 'background:#ffb347' : ''}"></i></span>` : ''}
     </div>`;
   };
   document.getElementById('nutTotals').innerHTML =
-    tile(totals.calories, goal.calories, 'קלוריות') + tile(totals.carbs, goal.carbs, 'פחמימות ג׳') + tile(totals.fat, goal.fat, 'שומן ג׳');
+    tile(totals.calories, goal.calories, 'קלוריות', 'קל׳', true) + tile(totals.carbs, goal.carbs, 'פחמימות', 'ג׳') + tile(totals.fat, goal.fat, 'שומן', 'ג׳');
 
   document.getElementById('goalCalInput').value = goal.calories ?? '';
   document.getElementById('goalProInput').value = goal.protein ?? '';
@@ -5779,8 +5793,8 @@ document.getElementById('coachOverlay').addEventListener('click', (e) => {
 });
 
 // bump on every change that reaches the phone, and add a line to "History of changes" in CLAUDE.md
-const APP_VERSION = '1.42';
-const APP_VERSION_DATE = '12.10.2026';
+const APP_VERSION = '1.43';
+const APP_VERSION_DATE = '15.10.2026';
 document.getElementById('appVersion').textContent = `גרסה ${APP_VERSION} · ${APP_VERSION_DATE}`;
 
 async function init(){
