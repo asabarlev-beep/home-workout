@@ -4572,12 +4572,15 @@ async function deleteNutritionEntry(idx){
 }
 
 async function saveNutritionGoalFromInputs(){
+  const prev = await loadNutritionGoal();
   const goal = {
     calories: document.getElementById('goalCalInput').value ? Number(document.getElementById('goalCalInput').value) : null,
     protein: document.getElementById('goalProInput').value ? Number(document.getElementById('goalProInput').value) : null,
     carbs: document.getElementById('goalCarbInput').value ? Number(document.getElementById('goalCarbInput').value) : null,
     fat: document.getElementById('goalFatInput').value ? Number(document.getElementById('goalFatInput').value) : null,
   };
+  if (goal.calories && goal.calories !== prev.calories) goal.caloriesSetAt = isoDate(new Date());
+  else if (prev.caloriesSetAt) goal.caloriesSetAt = prev.caloriesSetAt;
   await saveNutritionGoal(goal);
   document.getElementById('nutGoalBox').open = false;
   showToast('היעד נשמר ✓');
@@ -4621,8 +4624,23 @@ async function computeCalorieCoach(){
     change = round50(Math.max(-CAL_MAX_STEP, Math.min(CAL_MAX_STEP, ideal - intake)));
     if (Math.abs(change) < 100) change = Math.sign(ideal - intake) * 100;
   }
-  return { ...out, maintenance: round50(maintenance), change, target: round50(intake + change) };
+  const result = { ...out, maintenance: round50(maintenance), change, target: round50(intake + change) };
+  // a new calorie goal needs ~2 weeks to show on the scale: no new recommendation until then (v1.49)
+  const lock = calorieLock(await loadNutritionGoal());
+  if (lock) return { ...result, change: 0, target: result.target, locked: lock };
+  return result;
 }
+
+// the check period after the calorie goal was changed (goal.caloriesSetAt, ISO date), or null
+const CAL_LOCK_DAYS = 14;
+function calorieLock(goal){
+  if (!goal || !goal.caloriesSetAt) return null;
+  const since = new Date(goal.caloriesSetAt + 'T00:00:00');
+  const until = new Date(since); until.setDate(until.getDate() + CAL_LOCK_DAYS);
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  return today < until ? { since, until, calories: goal.calories } : null;
+}
+const shortDate = (d) => `${d.getDate()}.${d.getMonth() + 1}`;
 
 async function renderCalorieCoach(){
   const box = document.getElementById('calCoach');
@@ -4650,7 +4668,11 @@ async function renderCalorieCoach(){
       <div class="cc-stat"><b>${num(c.maintenance)}</b><span>שמירה משוערת</span></div>
     </div>`;
   let verdict;
-  if (c.change === 0){
+  if (c.locked){
+    verdict = `<div class="cc-verdict" style="border-color:#8caaff"><span class="big" style="color:#c8d4ff">⏳ בודקים את היעד החדש</span>
+      שינית את היעד ל-<b>${num(c.locked.calories || c.target)}</b> קלוריות ב-${shortDate(c.locked.since)}. המשקל צריך שבועיים להגיב, אז עד <b>${shortDate(c.locked.until)}</b> לא משנים שוב.
+      בינתיים: לאכול כ-${num(c.locked.calories || c.target)} ביום ולהישקל כל בוקר.</div>`;
+  } else if (c.change === 0){
     verdict = `<div class="cc-verdict" style="border-color:var(--accent)"><span class="big" style="color:var(--accent)">להמשיך ככה ✓</span>
       המשקל עולה בקצב הנכון לבניית שריר (${WEIGHT_GAIN_TARGET.min}–${WEIGHT_GAIN_TARGET.max} ק״ג בשבוע). נשאר על כ-${num(c.intake)} קלוריות ביום.</div>
       ${goal.calories && Math.abs(goal.calories - c.target) < 100 ? '' : `<div class="cc-note">${goal.calories ? `היעד השמור שלך הוא <b>${num(goal.calories)}</b>, ${goal.calories < c.target ? 'נמוך' : 'גבוה'} ממה שעובד לך בפועל.` : 'עדיין אין יעד קלוריות שמור.'}</div>
@@ -4661,13 +4683,17 @@ async function renderCalorieCoach(){
     verdict = `<div class="cc-verdict" style="border-color:${color}"><span class="big" style="color:${color}"><bdi dir="ltr">${up ? '+' : '−'}${num(Math.abs(c.change))}</bdi> קלוריות ביום</span>
       ${up ? 'המשקל עולה לאט מדי, אז חסר חומר לבניית שריר.' : 'המשקל עולה מהר מדי, וחלק מהעלייה הוא שומן.'} יעד חדש: <b>${num(c.target)}</b> קלוריות ביום.
       ${up ? 'הכי קל להוסיף פחמימות סביב האימון (אורז, לחם, פרי).' : 'הכי קל להוריד שומן מוסף ונשנושים, ולא את החלבון.'}</div>
-      ${goal.calories === c.target ? '<div class="cc-note">✓ זה כבר היעד שלך.</div>' : `<button class="save-btn" id="calApplyBtn">קבע ${num(c.target)} כיעד היומי</button>`}`;
+      ${goal.calories === c.target
+        ? `<div class="cc-note">✓ זה כבר היעד שלך${c.intake < goal.calories - 100 ? ` — אבל בפועל אכלת בממוצע <b>${num(c.intake)}</b>. היעד בסדר; צריך להגיע אליו בפועל.` : '.'}</div>`
+        : `<button class="save-btn" id="calApplyBtn">קבע ${num(c.target)} כיעד היומי</button>`}`;
   }
   box.innerHTML = `${title}${stats}${verdict}
-    <div class="cc-note">החישוב מתעדכן לבד. אחרי שינוי, תן לו שבועיים לפני שינוי נוסף — המשקל צריך זמן להגיב. ימים עם פחות מ-${num(CAL_MIN_DAY)} קלוריות לא נספרים.</div>`;
+    <div class="cc-note">המספרים מתעדכנים לבד מהאוכל והשקילות שאתה רושם. אחרי שינוי ביעד, חכה שבועיים לפני שינוי נוסף. ימים עם פחות מ-${num(CAL_MIN_DAY)} קלוריות לא נספרים.</div>`;
   const btn = document.getElementById('calApplyBtn');
   if (btn) btn.addEventListener('click', async () => {
     const g = await loadNutritionGoal();
+    // a real change in eating starts the 2-week check; aligning the goal with what you already eat does not
+    if (c.change && g.calories !== c.target) g.caloriesSetAt = isoDate(new Date());
     g.calories = c.target;
     await saveNutritionGoal(g);
     showToast(`יעד הקלוריות עודכן ל-${num(c.target)} ✓`);
@@ -5951,8 +5977,8 @@ document.getElementById('coachOverlay').addEventListener('click', (e) => {
 });
 
 // bump on every change that reaches the phone, and add a line to "History of changes" in CLAUDE.md
-const APP_VERSION = '1.48';
-const APP_VERSION_DATE = '15.10.2026';
+const APP_VERSION = '1.49';
+const APP_VERSION_DATE = '19.10.2026';
 document.getElementById('appVersion').textContent = `גרסה ${APP_VERSION} · ${APP_VERSION_DATE}`;
 
 async function init(){
