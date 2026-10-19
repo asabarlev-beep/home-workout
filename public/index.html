@@ -1216,6 +1216,15 @@
   .bw-legend .dot{ width:7px; height:7px; border-radius:50%; background:#d7ff3f; opacity:.55; display:inline-block; }
   .bw-legend .line{ width:14px; height:2px; background:#d7ff3f; display:inline-block; margin-inline-start:6px; }
   .bw-list-title{ color:var(--muted); font-size:13px; font-weight:800; margin:18px 0 6px; }
+  /* waist (v1.52) */
+  .bw-stat.wide{ grid-column:1 / -1; cursor:pointer; border:1px solid transparent; }
+  .bw-stat.wide:active{ border-color:var(--accent); }
+  .bw-stat.wide .v small{ font-size:13px; font-weight:600; color:var(--muted); margin-inline-start:3px; }
+  .bw-stat.wide .v .chg{ font-size:13px; font-weight:700; margin-inline-start:8px; }
+  .bw-stat .n.due{ color:#ffb347; }
+  .bw-mode-head{ display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap; font-weight:800; font-size:15px; margin:0 2px 10px; }
+  .bw-mode-head[hidden]{ display:none; }
+  .bw-mode-head button{ border:1px solid var(--line); background:var(--bg); color:var(--muted); border-radius:999px; padding:6px 12px; font:inherit; font-size:12.5px; font-weight:700; }
   .bw-diff{ font-size:12px; margin-top:2px; }
   .cb-title{ font-weight:800; font-size:15px; }
   .cb-row{ display:flex; justify-content:space-between; align-items:center; gap:10px; background:var(--bg); border-radius:12px; padding:10px 12px; margin-top:6px; font-size:14px; }
@@ -1590,12 +1599,13 @@
     </div>
     <div class="bw-wrap">
       <div class="bw-hero" id="bwHero"></div>
-      <div class="bw-entry">
+      <div class="bw-entry" id="bwEntry">
+        <div class="bw-mode-head" id="bwModeHead" hidden><span>📏 מדידת מותן</span><button type="button" id="bwBackWeight">⚖️ חזרה לשקילה</button></div>
         <div class="bw-days" role="group" aria-label="תאריך">
           <button type="button" class="bw-day active" data-bwday="0">היום</button>
           <button type="button" class="bw-day" data-bwday="1">אתמול</button>
         </div>
-        <div class="bw-protocol"><b>בבוקר</b> · אחרי שירותים · לפני אוכל ושתייה</div>
+        <div class="bw-protocol" id="bwProtocol"><b>בבוקר</b> · אחרי שירותים · לפני אוכל ושתייה</div>
         <div class="bw-stepper">
           <button type="button" class="bw-step" id="bwMinus" aria-label="פחות 0.1">−</button>
           <div class="bw-field" id="bwField" role="button" tabindex="0" aria-label="הקלד משקל"><span class="bw-value" id="bwValue"></span><span class="bw-unit" id="bwUnit"></span></div>
@@ -1613,10 +1623,10 @@
         <button class="save-btn bw-save" id="bwSaveBtn">שמור שקילה</button>
       </div>
       <div class="bw-chart-card">
-        <div class="bw-chart-head"><span>מגמה</span><span class="bw-legend"><i class="dot"></i>שקילה <i class="line"></i>ממוצע 7 ימים</span></div>
+        <div class="bw-chart-head"><span id="bwChartTitle">מגמה</span><span class="bw-legend" id="bwLegend"><i class="dot"></i>שקילה <i class="line"></i>ממוצע 7 ימים</span></div>
         <div id="bwChart"></div>
       </div>
-      <div class="bw-list-title">כל השקילות</div>
+      <div class="bw-list-title" id="bwListTitle">כל השקילות</div>
     </div>
     <div class="history-body" id="bwList" style="padding-top:0;"></div>
   </div>
@@ -3834,6 +3844,54 @@ async function saveBodyWeightLog(log){
   }
 }
 
+/* ---------------- waist (v1.52) ----------------
+   The scale alone cannot tell muscle from fat. A weekly waist measurement can: weight up with the waist
+   about the same = mostly muscle; waist up more than WAIST_FAST cm in 4 weeks = too much fat, and the
+   calorie coach stops adding / takes a little off. Stored in 'waist-log', newest first: [{date:'19.10.2026', cm}]. */
+const WAIST_MAX = 500, WAIST_WINDOW_DAYS = 35, WAIST_MIN_N = 3, WAIST_MIN_SPAN = 21;
+const WAIST_OK = 0.5, WAIST_FAST = 1.0; // cm per 4 weeks
+const WAIST_DUE_DAYS = 7;
+async function loadWaistLog(){
+  try {
+    const res = await window.storage.get('waist-log', false);
+    const v = (res && res.value) ? JSON.parse(res.value) : [];
+    return Array.isArray(v) ? v : [];
+  } catch (e) {
+    return [];
+  }
+}
+async function saveWaistLog(log){
+  try { await window.storage.set('waist-log', JSON.stringify(log), false); return true; } catch (e) { return false; }
+}
+// least-squares slope of the waist over the last 5 weeks, in cm per 4 weeks (null until 3 measurements over 3 weeks)
+function waistTrend(log){
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const all = (log || []).map(e => ({ d: parseHeDate(e.date), cm: Number(e.cm) })).filter(p => p.d && p.cm > 0).sort((a, b) => b.d - a.d);
+  const last = all[0] || null;
+  const daysSince = last ? Math.round((today - last.d) / 86400000) : null;
+  const pts = all.map(p => ({ x: Math.round((p.d - today) / 86400000), cm: p.cm })).filter(p => p.x <= 0 && p.x > -WAIST_WINDOW_DAYS);
+  const span = pts.length ? Math.max(...pts.map(p => p.x)) - Math.min(...pts.map(p => p.x)) : 0;
+  let rate = null;
+  if (pts.length >= WAIST_MIN_N && span >= WAIST_MIN_SPAN){
+    const mx = pts.reduce((t, p) => t + p.x, 0) / pts.length, mc = pts.reduce((t, p) => t + p.cm, 0) / pts.length;
+    const num = pts.reduce((t, p) => t + (p.x - mx) * (p.cm - mc), 0), den = pts.reduce((t, p) => t + (p.x - mx) ** 2, 0);
+    rate = den ? num / den * 28 : null;
+  }
+  return { rate, n: pts.length, span, last, daysSince, fast: rate !== null && rate > WAIST_FAST };
+}
+// [text, color] for the waist trend, read together with the weight rate
+function waistVerdict(wt, weightRate){
+  if (wt.rate === null){
+    const more = Math.max(WAIST_MIN_N - wt.n, Math.ceil((WAIST_MIN_SPAN - wt.span) / 7));
+    return [`עוד ${more === 1 ? 'מדידה שבועית אחת' : `${more} מדידות שבועיות`} עד שיש מגמה`, 'var(--muted)'];
+  }
+  if (wt.rate > WAIST_FAST) return ['המותן גדלה מהר — כנראה יותר מדי שומן', '#ffb347'];
+  if (wt.rate > WAIST_OK) return ['עלייה קלה במותן — לשים עין', 'var(--muted)'];
+  return weightRate !== null && weightRate > 0.1 ? ['✓ המשקל עולה, המותן כמעט לא — בעיקר שריר', 'var(--accent)'] : ['✓ המותן יציבה', 'var(--accent)'];
+}
+const fmtCm = (v) => `${v > 0 ? '+' : v < 0 ? '−' : ''}${Math.abs(Math.round(v * 10) / 10)}`;
+
+let bwMode = 'weight'; // 'weight' | 'waist' — what the entry card, chart and list show
 let bwDayOffset = 0; // 0 = today, 1 = yesterday
 
 // the weight is kept in a hidden field and shown as plain text (a text field inside the row collapsed on the phone)
@@ -3854,7 +3912,27 @@ function bwDateStr(offset){
   return d.toLocaleDateString('he-IL');
 }
 
+async function addWaistEntry(rawVal){
+  const errEl = document.getElementById('bwError');
+  const val = parseWeightInput(rawVal);
+  if (val === null || val < 50 || val > 160){
+    errEl.textContent = val === null ? 'הכנס היקף, למשל 84.5' : 'ההיקף צריך להיות בין 50 ל-160 ס״מ';
+    return;
+  }
+  errEl.textContent = '';
+  const dateStr = bwDateStr(bwDayOffset);
+  let log = await loadWaistLog();
+  const i = log.findIndex(e => e.date === dateStr);
+  if (i !== -1) log[i].cm = val; else log.push({ date: dateStr, cm: val });
+  log.sort((x, y) => (parseHeDate(y.date) || 0) - (parseHeDate(x.date) || 0));
+  const ok = await saveWaistLog(log.slice(0, WAIST_MAX));
+  bwKeypadOpen(false);
+  showToast(ok ? (i !== -1 ? 'המדידה עודכנה ✓' : 'המדידה נשמרה ✓') : 'השמירה נכשלה, נסה שוב');
+  renderBodyWeightPanel();
+}
+
 async function addBodyWeightEntry(rawVal){
+  if (bwMode === 'waist') return addWaistEntry(rawVal);
   const errEl = document.getElementById('bwError');
   const val = parseWeightInput(rawVal);
   const [min, max] = weightUnit === 'lb' ? [66, 550] : [30, 250];
@@ -3939,46 +4017,48 @@ function bodyWeightChartSvg(pts){
 
 async function renderBodyWeightPanel(){
   const log = await loadBodyWeightLog();
+  const wlog = await loadWaistLog();
+  const waist = bwMode === 'waist';
   const unit = unitLabel();
-  const input = document.getElementById('bwInput');
-  document.getElementById('bwUnit').textContent = unit;
+  document.getElementById('bwUnit').textContent = waist ? 'ס״מ' : unit;
   document.getElementById('bwError').textContent = '';
   document.querySelectorAll('.bw-day').forEach(b => b.classList.toggle('active', Number(b.dataset.bwday) === bwDayOffset));
+  document.getElementById('bwModeHead').hidden = !waist;
+  document.getElementById('bwProtocol').innerHTML = waist
+    ? '<b>בגובה הטבור</b> · בבוקר · בסוף נשיפה רגילה, בלי לשאוב בטן'
+    : '<b>בבוקר</b> · אחרי שירותים · לפני אוכל ושתייה';
+  document.getElementById('bwMinus').setAttribute('aria-label', waist ? 'פחות 0.5' : 'פחות 0.1');
+  document.getElementById('bwPlus').setAttribute('aria-label', waist ? 'עוד 0.5' : 'עוד 0.1');
+  document.getElementById('bwField').setAttribute('aria-label', waist ? 'הקלד היקף מותן' : 'הקלד משקל');
+  document.getElementById('bwChartTitle').textContent = waist ? 'מותן' : 'מגמה';
+  document.getElementById('bwLegend').innerHTML = waist ? '<i class="line"></i>ס״מ' : '<i class="dot"></i>שקילה <i class="line"></i>ממוצע 7 ימים';
+  document.getElementById('bwListTitle').textContent = waist ? 'כל המדידות' : 'כל השקילות';
   const listWrap = document.getElementById('bwList');
   const chartWrap = document.getElementById('bwChart');
   const hero = document.getElementById('bwHero');
   const pts = bodyWeightSeries(log);
 
-  // the field starts at the weight of the chosen day if it exists, else the latest one
-  const sameDay = log.find(e => e.date === bwDateStr(bwDayOffset));
-  const start = sameDay || log[0];
-  bwSetValue(start ? String(kgToDisplayUnit(start.weight)) : '');
-  document.getElementById('bwSaveBtn').textContent = sameDay ? 'עדכן שקילה' : 'שמור שקילה';
+  // the field starts at the value of the chosen day if it exists, else the latest one
+  const entries = waist ? wlog : log;
+  const sameDay = entries.find(e => e.date === bwDateStr(bwDayOffset));
+  const start = sameDay || entries[0];
+  bwSetValue(start ? String(waist ? start.cm : kgToDisplayUnit(start.weight)) : '');
+  document.getElementById('bwSaveBtn').textContent = waist ? (sameDay ? 'עדכן מדידה' : 'שמור מדידה') : (sameDay ? 'עדכן שקילה' : 'שמור שקילה');
 
+  const rate = await computeWeightRate();
+  hero.innerHTML = (pts.length ? weightHeroHtml(pts, rate, unit) : `<div class="sub">עוד לא נרשמה שקילה. שקילה בבוקר, 2–3 פעמים בשבוע, מספיקה כדי לראות מגמה.</div><div class="bw-stats"></div>`);
+  hero.querySelector('.bw-stats').insertAdjacentHTML('beforeend', waistTileHtml(waistTrend(wlog), rate));
+  document.getElementById('bwWaistTile').addEventListener('click', () => {
+    bwMode = 'waist'; bwDayOffset = 0; bwKeypadOpen(false); renderBodyWeightPanel();
+    document.getElementById('bwEntry').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  });
+
+  if (waist) return renderWaistList(wlog, chartWrap, listWrap);
   if (!pts.length){
-    hero.innerHTML = `<div class="sub">עוד לא נרשמה שקילה. שקילה בבוקר, 2–3 פעמים בשבוע, מספיקה כדי לראות מגמה.</div>`;
     chartWrap.innerHTML = '<div class="history-empty" style="padding:18px 0">הגרף יופיע אחרי השקילה הראשונה</div>';
     listWrap.innerHTML = '';
     return;
   }
-
-  const last = pts[pts.length - 1];
-  const rate = await computeWeightRate();
-  const rateTxt = rate === null ? '—' : `${rate > 0 ? '+' : ''}${kgToDisplayUnit(Math.round(rate * 100) / 100)}`;
-  const ready = weightRateReadyDate();
-  const [rateNote, rateColor] = rate === null ? [new Date() < ready ? `שקילות בוקר בלבד · מוכן ב-${ready.getDate()}.${ready.getMonth() + 1}` : 'צריך 3 שקילות לאורך שבוע', 'var(--muted)']
-    : rate < WEIGHT_GAIN_TARGET.min ? ['איטי מהיעד', '#ffb347']
-    : rate > WEIGHT_GAIN_TARGET.max ? ['מהיר מהיעד', '#ffb347'] : ['בקצב הנכון', 'var(--accent)'];
-  const recent7 = pts.filter(p => (last.d - p.d) / 86400000 < 7);
-  const morning7 = recent7.filter(p => p.d >= WEIGH_MORNING_SINCE);
-  const avg7 = morning7.length ? morning7 : recent7;
-  hero.innerHTML = `
-    <div class="big">${last.w}<small>${unit}</small></div>
-    <div class="sub">שקילה אחרונה · ${last.date}</div>
-    <div class="bw-stats">
-      <div class="bw-stat"><div class="k">ממוצע 7 ימים</div><div class="v">${(avg7.reduce((s, p) => s + p.w, 0) / avg7.length).toFixed(1)}</div><div class="n" style="color:var(--muted)">${avg7.length} שקילות</div></div>
-      <div class="bw-stat"><div class="k">קצב לשבוע · 14 יום</div><div class="v"><bdi dir="ltr">${rateTxt}</bdi></div><div class="n" style="color:${rateColor}">${rateNote}</div></div>
-    </div>`;
   chartWrap.innerHTML = bodyWeightChartSvg(pts);
 
   listWrap.innerHTML = '';
@@ -4007,7 +4087,57 @@ async function renderBodyWeightPanel(){
   });
 }
 
+function weightHeroHtml(pts, rate, unit){
+  const last = pts[pts.length - 1];
+  const rateTxt = rate === null ? '—' : `${rate > 0 ? '+' : ''}${kgToDisplayUnit(Math.round(rate * 100) / 100)}`;
+  const ready = weightRateReadyDate();
+  const [rateNote, rateColor] = rate === null ? [new Date() < ready ? `שקילות בוקר בלבד · מוכן ב-${ready.getDate()}.${ready.getMonth() + 1}` : 'צריך 3 שקילות לאורך שבוע', 'var(--muted)']
+    : rate < WEIGHT_GAIN_TARGET.min ? ['איטי מהיעד', '#ffb347']
+    : rate > WEIGHT_GAIN_TARGET.max ? ['מהיר מהיעד', '#ffb347'] : ['בקצב הנכון', 'var(--accent)'];
+  const recent7 = pts.filter(p => (last.d - p.d) / 86400000 < 7);
+  const morning7 = recent7.filter(p => p.d >= WEIGH_MORNING_SINCE);
+  const avg7 = morning7.length ? morning7 : recent7;
+  return `
+    <div class="big">${last.w}<small>${unit}</small></div>
+    <div class="sub">שקילה אחרונה · ${last.date}</div>
+    <div class="bw-stats">
+      <div class="bw-stat"><div class="k">ממוצע 7 ימים</div><div class="v">${(avg7.reduce((t, p) => t + p.w, 0) / avg7.length).toFixed(1)}</div><div class="n" style="color:var(--muted)">${avg7.length} שקילות</div></div>
+      <div class="bw-stat"><div class="k">קצב לשבוע · 14 יום</div><div class="v"><bdi dir="ltr">${rateTxt}</bdi></div><div class="n" style="color:${rateColor}">${rateNote}</div></div>
+    </div>`;
+}
+
+// the waist tile under the weight stats; tapping it switches the entry card to the waist
+function waistTileHtml(wt, weightRate){
+  if (!wt.last) return `<div class="bw-stat wide" id="bwWaistTile" role="button" tabindex="0"><div class="k">📏 מותן · פעם בשבוע</div><div class="v">—</div><div class="n" style="color:var(--muted)">הקש כדי למדוד — כך יודעים אם העלייה במשקל היא שריר או שומן</div></div>`;
+  const [txt, color] = waistVerdict(wt, weightRate);
+  const due = wt.daysSince >= WAIST_DUE_DAYS;
+  const chg = wt.rate !== null ? `<span class="chg" style="color:${color}"><bdi dir="ltr">${fmtCm(wt.rate)}</bdi> ב-4 שבועות</span>` : '';
+  return `<div class="bw-stat wide" id="bwWaistTile" role="button" tabindex="0"><div class="k">📏 מותן · מגמה 4 שבועות</div>
+    <div class="v"><bdi>${wt.last.cm}</bdi><small>ס״מ</small>${chg}</div>
+    <div class="n" style="color:${color}">${txt}</div>
+    ${due ? `<div class="n due">נמדד לפני ${wt.daysSince} ימים · הקש למדידה</div>` : ''}</div>`;
+}
+
+function renderWaistList(wlog, chartWrap, listWrap){
+  const pts = wlog.map(e => ({ d: parseHeDate(e.date), w: Number(e.cm), date: e.date })).filter(p => p.d && p.w > 0).sort((a, b) => a.d - b.d);
+  pts.forEach(p => { p.avg = p.w; });
+  chartWrap.innerHTML = pts.length ? bodyWeightChartSvg(pts) : '<div class="history-empty" style="padding:18px 0">הגרף יופיע אחרי המדידה הראשונה</div>';
+  listWrap.innerHTML = wlog.map((e, idx) => {
+    const prev = wlog[idx + 1];
+    const diff = prev ? Math.round((e.cm - prev.cm) * 10) / 10 : null;
+    return `<div class="set-log-row"><div><div class="set-log-main"><bdi>${e.cm}</bdi> ס״מ</div>
+      ${diff !== null ? `<div class="bw-diff" style="color:${diff > 0 ? '#ffb347' : diff < 0 ? 'var(--accent)' : 'var(--muted)'}"><bdi dir="ltr">${fmtCm(diff)}</bdi> מהמדידה הקודמת</div>` : ''}</div>
+      <div style="display:flex;align-items:center;gap:8px;"><div class="set-log-time">${e.date}</div>
+      <button class="icon-btn danger" data-wdel="${idx}" title="מחק" aria-label="מחק">${ic('trash')}</button></div></div>`;
+  }).join('');
+  listWrap.querySelectorAll('[data-wdel]').forEach(btn => btn.addEventListener('click', () => {
+    const i = Number(btn.dataset.wdel);
+    showConfirm('למחוק מדידה?', 'המדידה תימחק לצמיתות.', async () => { const l = await loadWaistLog(); l.splice(i, 1); await saveWaistLog(l); renderBodyWeightPanel(); }, 'מחק');
+  }));
+}
+
 function openBodyWeight(){
+  bwMode = 'weight';
   bwDayOffset = 0;
   bwKeypadOpen(false);
   renderBodyWeightPanel();
@@ -4017,7 +4147,8 @@ function openBodyWeight(){
 function bwNudge(delta){
   const input = document.getElementById('bwInput');
   const cur = parseWeightInput(input.value);
-  const base = cur !== null ? cur : 70;
+  const base = cur !== null ? cur : (bwMode === 'waist' ? 85 : 70);
+  if (bwMode === 'waist') delta = delta * 5; // ±0.5 cm
   bwSetValue((Math.round((base + delta) * 10) / 10).toFixed(1));
   document.getElementById('bwError').textContent = '';
   bwFresh = false;
@@ -4048,6 +4179,7 @@ document.querySelectorAll('#bwKeypad [data-k]').forEach(btn => btn.addEventListe
   bwSetValue(v);
   document.getElementById('bwError').textContent = '';
 }));
+document.getElementById('bwBackWeight').addEventListener('click', () => { bwMode = 'weight'; bwDayOffset = 0; bwKeypadOpen(false); renderBodyWeightPanel(); });
 document.getElementById('bwSaveBtn').addEventListener('click', () => {
   addBodyWeightEntry(document.getElementById('bwInput').value);
 });
@@ -4625,7 +4757,14 @@ async function computeCalorieCoach(){
     change = round50(Math.max(-CAL_MAX_STEP, Math.min(CAL_MAX_STEP, ideal - intake)));
     if (Math.abs(change) < 100) change = Math.sign(ideal - intake) * 100;
   }
-  const result = { ...out, maintenance: round50(maintenance), change, target: round50(intake + change) };
+  // the waist overrules the scale (v1.52): growing fast = the gain is too much fat — never add, and on pace take 150 off
+  const waist = waistTrend(await loadWaistLog());
+  let waistHold = false;
+  if (waist.fast && change >= 0){
+    waistHold = true;
+    change = rate >= WEIGHT_GAIN_TARGET.min ? -150 : 0;
+  }
+  const result = { ...out, maintenance: round50(maintenance), change, target: round50(intake + change), waist, waistHold };
   // a new calorie goal needs ~2 weeks to show on the scale: no new recommendation until then (v1.49)
   const lock = calorieLock(await loadNutritionGoal());
   if (lock) return { ...result, change: 0, target: result.target, locked: lock };
@@ -4669,10 +4808,14 @@ async function renderCalorieCoach(){
       <div class="cc-stat"><b>${num(c.maintenance)}</b><span>שמירה משוערת</span></div>
     </div>`;
   let verdict;
+  const waistLine = c.waistHold ? `המותן גדלה ב-<b><bdi>${Math.round(c.waist.rate * 10) / 10}</bdi></b> ס״מ ב-4 שבועות` : '';
   if (c.locked){
     verdict = `<div class="cc-verdict" style="border-color:#8caaff"><span class="big" style="color:#c8d4ff">⏳ בודקים את היעד החדש</span>
       שינית את היעד ל-<b>${num(c.locked.calories || c.target)}</b> קלוריות ב-${shortDate(c.locked.since)}. המשקל צריך שבועיים להגיב, אז עד <b>${shortDate(c.locked.until)}</b> לא משנים שוב.
       בינתיים: לאכול כ-${num(c.locked.calories || c.target)} ביום ולהישקל כל בוקר.</div>`;
+  } else if (c.change === 0 && c.waistHold){
+    verdict = `<div class="cc-verdict" style="border-color:#ffb347"><span class="big" style="color:#ffb347">לא מוסיפים קלוריות כרגע</span>
+      המשקל עולה לאט, אבל ${waistLine}. לפני שמוסיפים אוכל, לוודא שהמדידה עקבית (בבוקר, בגובה הטבור). בינתיים להישאר על כ-${num(c.intake)} ביום.</div>`;
   } else if (c.change === 0){
     verdict = `<div class="cc-verdict" style="border-color:var(--accent)"><span class="big" style="color:var(--accent)">להמשיך ככה ✓</span>
       המשקל עולה בקצב הנכון לבניית שריר (${WEIGHT_GAIN_TARGET.min}–${WEIGHT_GAIN_TARGET.max} ק״ג בשבוע). נשאר על כ-${num(c.intake)} קלוריות ביום.</div>
@@ -4682,7 +4825,7 @@ async function renderCalorieCoach(){
     const up = c.change > 0;
     const color = '#ffb347';
     verdict = `<div class="cc-verdict" style="border-color:${color}"><span class="big" style="color:${color}"><bdi dir="ltr">${up ? '+' : '−'}${num(Math.abs(c.change))}</bdi> קלוריות ביום</span>
-      ${up ? 'המשקל עולה לאט מדי, אז חסר חומר לבניית שריר.' : 'המשקל עולה מהר מדי, וחלק מהעלייה הוא שומן.'} יעד חדש: <b>${num(c.target)}</b> קלוריות ביום.
+      ${up ? 'המשקל עולה לאט מדי, אז חסר חומר לבניית שריר.' : c.waistHold ? `המשקל בקצב הנכון, אבל ${waistLine} — חלק מהעלייה הוא שומן.` : 'המשקל עולה מהר מדי, וחלק מהעלייה הוא שומן.'} יעד חדש: <b>${num(c.target)}</b> קלוריות ביום.
       ${up ? 'הכי קל להוסיף פחמימות סביב האימון (אורז, לחם, פרי).' : 'הכי קל להוריד שומן מוסף ונשנושים, ולא את החלבון.'}</div>
       ${goal.calories === c.target
         ? `<div class="cc-note">✓ זה כבר היעד שלך${c.intake < goal.calories - 100 ? ` — אבל בפועל אכלת בממוצע <b>${num(c.intake)}</b>. היעד בסדר; צריך להגיע אליו בפועל.` : '.'}</div>`
@@ -5613,7 +5756,7 @@ async function computeWeightRate(){
   return weightTrend(await loadBodyWeightLog()).rate;
 }
 
-function trendSectionHtml(protein, rate, coach){
+function trendSectionHtml(protein, rate, coach, waist){
   let html = '<div class="trend"><div class="trend-title">תזונה ומשקל · 7 ימים אחרונים</div>';
   if (protein){
     const pct = Math.min(100, Math.round(protein.avg / protein.goal * 100));
@@ -5637,6 +5780,11 @@ function trendSectionHtml(protein, rate, coach){
   } else {
     html += '<div class="trend-note" style="margin-top:14px">משקל גוף: אין עדיין מספיק שקילות. שקול את עצמך 2–3 פעמים בשבוע, בבוקר, ב"מעקב משקל גוף".</div>';
   }
+  if (waist && waist.last){
+    const [txt, color] = waistVerdict(waist, rate);
+    html += `<div class="trend-row" style="margin-top:14px"><span>מותן</span><b>${waist.rate !== null ? `<bdi dir="ltr">${fmtCm(waist.rate)}</bdi> ס״מ ב-4 שבועות` : `<bdi>${waist.last.cm}</bdi> ס״מ`}</b></div>
+      <div class="trend-note"><span style="color:${color}">${txt}</span></div>`;
+  }
   return html + '</div>';
 }
 
@@ -5649,13 +5797,14 @@ function workoutsThisWeek(timeline){
 }
 
 // the ONE thing to do next week, by priority: show up → protein → calories → stuck exercise → weak muscle → keep going
-function weeklyAction({ workouts, protein, coach, stalled, totals }){
+function weeklyAction({ workouts, protein, coach, stalled, totals, waist }){
   if (workouts < 3) return ['🗓️', 'להגיע ל-4 אימונים לפחות', `השבוע היו ${workouts}. בלי תדירות אין התקדמות — קבע מראש ימים ושעות לשבוע הבא.`];
   if (protein && protein.avg < protein.goal * 0.85) return ['🥩', `חלבון: להגיע ל-${protein.goal} ג׳ ביום`, `הממוצע השבוע ${Math.round(protein.avg)} ג׳. הוסף מנה של 30–40 ג׳ (יוגורט חלבון, קוטג׳, שייק) בארוחה שבה אתה הכי חסר.`];
-  if (coach && coach.target !== undefined && coach.change) return ['🔥', `יעד קלוריות חדש: ${Math.round(coach.target).toLocaleString('he-IL')}`, coach.change > 0 ? 'המשקל עולה לאט מדי. הוסף את ההפרש בפחמימות סביב האימון.' : 'המשקל עולה מהר מדי. הורד שומן מוסף ונשנושים, לא חלבון.'];
+  if (coach && coach.target !== undefined && coach.change) return ['🔥', `יעד קלוריות חדש: ${Math.round(coach.target).toLocaleString('he-IL')}`, coach.change > 0 ? 'המשקל עולה לאט מדי. הוסף את ההפרש בפחמימות סביב האימון.' : coach.waistHold ? 'המותן גדלה מהר מדי. הורד שומן מוסף ונשנושים, לא חלבון.' : 'המשקל עולה מהר מדי. הורד שומן מוסף ונשנושים, לא חלבון.'];
   if (stalled.length) return ['⚠️', `לשבור את הקיפאון ב${stalled[0].name}`, `${stalled[0].todo}.${stalled.length > 1 ? ` עוד ${stalled.length - 1} תרגילים תקועים — ברשימה למטה.` : ''}`];
   const weak = MAJOR_MUSCLES.find(m => (totals[m] || 0) > 0 && totals[m] < 10);
   if (weak) return ['➕', `${weak}: להוסיף סט`, `רק ${totals[weak]} סטים השבוע (יעד 10–20). הוסף סט אחד לתרגיל הראשי של השריר הזה.`];
+  if (waist && (!waist.last || waist.daysSince >= WAIST_DUE_DAYS)) return ['📏', 'למדוד מותן', `${waist.last ? `המדידה האחרונה לפני ${waist.daysSince} ימים.` : 'עוד לא נמדד.'} פעם בשבוע, בבוקר, בגובה הטבור — כך יודעים שהעלייה במשקל היא שריר. במסך המשקל → 📏 מותן.`];
   return ['💪', 'להמשיך בדיוק ככה', 'אימונים, חלבון וקצב המשקל בסדר. בשבוע הבא: חזרה אחת או משקל אחד יותר בכל תרגיל.'];
 }
 
@@ -5663,7 +5812,8 @@ async function renderWeekly(){
   const protein = await computeProteinWeek();
   let coach = null;
   try { coach = await computeCalorieCoach(); } catch (e) {}
-  const trend = trendSectionHtml(protein, await computeWeightRate(), coach);
+  const wRate = await computeWeightRate();
+  const trend = trendSectionHtml(protein, wRate, coach, waistTrend(await loadWaistLog()));
   const totals = await computeWeeklyVolume();
   const week = blockWeek();
   let timeline = {};
@@ -5675,7 +5825,8 @@ async function renderWeekly(){
     const st = stallInfo(ex, timeline);
     if (st.stuck) stalled.push({ id: ex.id, name: ex.name, ...st });
   }));
-  const [icon, actTitle, actWhy] = weeklyAction({ workouts, protein, coach, stalled, totals });
+  const waist = waistTrend(await loadWaistLog());
+  const [icon, actTitle, actWhy] = weeklyAction({ workouts, protein, coach, stalled, totals, waist });
   const head = `<div class="wk-head">
       <div class="wk-count"><b><bdi>${workouts}</bdi></b><span>מתוך ${PLANNED_PER_WEEK} אימונים</span></div>
       <div class="wk-dots">${Array.from({ length: PLANNED_PER_WEEK }, (_, i) => `<i class="${i < workouts ? 'on' : ''}"></i>`).join('')}</div>
@@ -5979,7 +6130,7 @@ document.getElementById('coachOverlay').addEventListener('click', (e) => {
 });
 
 // bump on every change that reaches the phone, and add a line to "History of changes" in CLAUDE.md
-const APP_VERSION = '1.51';
+const APP_VERSION = '1.52';
 const APP_VERSION_DATE = '19.10.2026';
 document.getElementById('appVersion').textContent = `גרסה ${APP_VERSION} · ${APP_VERSION_DATE}`;
 
