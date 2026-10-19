@@ -2125,13 +2125,31 @@ function renderTabs(){
   });
 }
 
+/* ONE way to write sets, everywhere (v1.55): the weight next to its unit, then the reps — "6 ק״ג × 15".
+   Before, "15×6 ק״ג" was shown and the RTL layout flipped it to "6×15 ק״ג", so the REPS sat next to "ק״ג"
+   and read as the weight. Consecutive sets with the same weight share it: "5 ק״ג × 12, 11, 10".
+   Each group is wrapped in a first-strong isolate (FSI…PDI), so it works in plain text and in HTML. */
+const ISO = (t) => `\u2068${t}\u2069`;
+function setStr(reps, weightKg){
+  const r = reps ?? '?';
+  return ISO(weightKg == null || weightKg === '' ? `${r} חז׳` : `${formatWeight(weightKg)} × ${r}`);
+}
+// items: [{reps, weight (kg), warmup}] → "5 ק״ג × 12, 11, 10 · 4 ק״ג × 9"
+function setsGroupText(sets){
+  const groups = [];
+  (sets || []).forEach(st => {
+    const g = groups[groups.length - 1];
+    if (g && g.weight === (st.weight ?? null) && g.warmup === !!st.warmup) g.reps.push(st.reps ?? '?');
+    else groups.push({ weight: st.weight ?? null, warmup: !!st.warmup, reps: [st.reps ?? '?'] });
+  });
+  return groups.map(g => ISO(`${g.warmup ? 'חימום ' : ''}${g.weight == null ? `${g.reps.join(', ')} חז׳` : `${formatWeight(g.weight)} × ${g.reps.join(', ')}`}`)).join(' · ');
+}
+
 function formatLastNote(lastForExercise){
   if (!lastForExercise || !lastForExercise.sets || !lastForExercise.sets.length) return 'עדיין אין נתונים קודמים';
-  const parts = lastForExercise.sets
-    .filter(s => hasSetData(s))
-    .map(s => `${s.warmup ? 'ח· ' : ''}${s.reps ?? '-'}×${formatWeight(s.weight)}`);
-  if (!parts.length) return 'עדיין אין נתונים קודמים';
-  return 'לאחרונה: ' + parts.join('  ·  ');
+  const sets = lastForExercise.sets.filter(s => hasSetData(s));
+  if (!sets.length) return 'עדיין אין נתונים קודמים';
+  return 'לאחרונה: ' + setsGroupText(sets);
 }
 
 function computeLiveVolume(){
@@ -2478,24 +2496,21 @@ let cardFocusDay = null;
 
 function upcomingSummary(n, rec){
   const sets = rec && (rec.sets || []).filter(st => hasSetData(st) && !st.warmup);
-  // "12, 11, 10 × 45" when every set had the same weight (the usual case), else "12×45 · 10×40"
-  const w = (st) => st.weight != null ? kgToDisplayUnit(st.weight) : '?';
-  const sameW = sets && sets.length && sets.every(st => w(st) === w(sets[0]));
-  const last = !(sets && sets.length) ? ''
-    : sameW ? `\u2066${sets.map(st => st.reps ?? '?').join(', ')} × ${w(sets[0])}\u2069`
-    : sets.map(st => `\u2066${st.reps ?? '?'}×${w(st)}\u2069`).join(' · ');
+  // "45 ק״ג × 12, 11, 10" — same format as everywhere (setsGroupText)
+  const last = sets && sets.length ? setsGroupText(sets) : '';
   return `${n} סטים${last ? ` · לאחרונה ${last}` : ''}`;
 }
 
 function cardDoneSummary(card){
-  const parts = [];
+  const sets = [];
   card.querySelectorAll('table.sets tbody tr').forEach(tr => {
     const r = tr.querySelector('[data-field="reps"]'), w = tr.querySelector('[data-field="weight"]');
     const reps = r.value || r.placeholder, weight = w.value || w.placeholder;
     if (tr.querySelector('.set-idx-btn.warmup')) return;
-    parts.push(`<bdi dir="ltr">${esc(reps || '?')}×${esc(weight || '?')}</bdi>`);
+    const wn = parseFloat(String(weight || '').replace(',', '.'));
+    sets.push({ reps: esc(reps || '?'), weight: Number.isFinite(wn) ? displayUnitToKg(wn) : null });
   });
-  return parts.join(' · ');
+  return setsGroupText(sets);
 }
 
 function updateCardFocus(scrollToNext = false){
@@ -2986,7 +3001,7 @@ function showWorkoutSummary(day, session, previous, newPRs, secs){
       if (b > a * 1.005){
         const top = (arr) => arr.reduce((m, x) => est1RM(x.weight, x.reps) > est1RM(m.weight, m.reps) ? x : m);
         const tp = top(prev), tc = top(cur);
-        improved.push(`<div class="sum-row"><span>${ex.name}</span><b><bdi dir="ltr">${tp.reps}×${kgToDisplayUnit(tp.weight)} → ${tc.reps}×${kgToDisplayUnit(tc.weight)}</bdi></b></div>`);
+        improved.push(`<div class="sum-row"><span>${ex.name}</span><b>${setStr(tp.reps, tp.weight)} ← ${setStr(tc.reps, tc.weight)}</b></div>`);
       }
     }
     const next = nextWeightSuggestion(ex, rec);
@@ -3098,9 +3113,16 @@ async function refreshLiveHintsInner(exId){
     live = pending.length ? { nextSet: nextSetSuggestion(ex, todaySets) } : { nextTime: nextWeightSuggestion(ex, { sets: todaySets.filter(x => x && !x.warmup) }) };
     const n = live.nextSet;
     if (n){
+      // the grey reps follow too when today's weight is not last time's: last time's 11 and 10 at 5 kg
+      // mean nothing after 15 reps at 6 kg — today's last set is the number to match (v1.55)
+      const lastWork = todaySets.filter(x => x && !x.warmup && hasSetData(x)).pop();
       pending.forEach(b => {
-        const w = card.querySelector(`input[data-set="${b.getAttribute('data-set')}"][data-field="weight"]`);
+        const i = Number(b.getAttribute('data-set'));
+        const w = card.querySelector(`input[data-set="${i}"][data-field="weight"]`);
+        const r = card.querySelector(`input[data-set="${i}"][data-field="reps"]`);
         if (w && !w.value) w.placeholder = kgToDisplayUnit(n.weight);
+        const prevSet = prev && prev.sets ? prev.sets[i - 1] : null;
+        if (r && !r.value && lastWork && lastWork.reps != null && !(prevSet && Number(prevSet.weight) === Number(n.weight))) r.placeholder = lastWork.reps;
       });
     }
   }
@@ -3145,11 +3167,11 @@ function lastNoteChips(rec, pr, ex, live){
   html += `<span class="chip${hasLast ? '' : ' empty'}">${last}</span>`;
   if (ex && barOf(ex)) html += `<span class="chip bar" data-bar-chip="${ex.id}">${barChipText(ex, null)}</span>`;
   if (ex && isPair(ex)) html += `<span class="chip bar" data-pair-chip="${ex.id}">${pairChipText(ex, null)}</span>`;
-  if (pr) html += `<span class="chip pr">${ic('trophy')} שיא ${pr.reps ?? '-'}×${formatWeight(pr.weight)}</span>`;
+  if (pr) html += `<span class="chip pr">${ic('trophy')} שיא ${setStr(pr.reps, pr.weight)}</span>`;
   const warm = ex ? warmupPlan(ex, rec) : null;
   if (warm){
     html += `<span class="chip warm" role="button" data-warm>🔥 חימום</span>`;
-    html += `<div class="warm-plan" hidden>חימום לפני ${formatWeight(warm.work)}: ${warm.steps.map(st => `<b>${st.reps}×${formatWeight(st.weight)}</b>`).join(' · ')}<br><span>מנוחה קצרה (כדקה), בלי להתאמץ — רק להכין את המפרקים.</span></div>`;
+    html += `<div class="warm-plan" hidden>חימום לפני ${formatWeight(warm.work)}: ${warm.steps.map(st => `<b>${setStr(st.reps, st.weight)}</b>`).join(' · ')}<br><span>מנוחה קצרה (כדקה), בלי להתאמץ — רק להכין את המפרקים.</span></div>`;
   }
   return html;
 }
@@ -5198,7 +5220,7 @@ function renderHistoryTabs(){
 function setSummary(sets){
   const filled = (sets || []).filter(s => hasSetData(s));
   if (!filled.length) return '—';
-  return filled.map(s => `<span class="set-chip">${s.warmup ? 'ח· ' : ''}${s.reps ?? '-'}×${formatWeight(s.weight)}</span>`).join('');
+  return filled.map(s => `<span class="set-chip">${s.warmup ? 'חימום ' : ''}${setStr(s.reps, s.weight)}</span>`).join('');
 }
 
 function computeSessionVolume(session, day){
@@ -5908,7 +5930,7 @@ function topSetText(sets){
   const val = (x) => Number(x.weight) > 0 ? Number(x.weight) * (1 + Number(x.reps) / 30) : Number(x.reps);
   const b = sets.reduce((m, x) => (!m || val(x) > val(m)) ? x : m, null);
   if (!b) return '';
-  return Number(b.weight) > 0 ? `${kgToDisplayUnit(Number(b.weight))}×${b.reps}` : `${b.reps} חז׳`;
+  return setStr(b.reps, Number(b.weight) > 0 ? Number(b.weight) : null);
 }
 function progressReport(timeline){
   const today = new Date(); today.setHours(0, 0, 0, 0);
@@ -5984,7 +6006,7 @@ async function renderProgress(){
   let lastDay = null;
   r.rows.forEach(x => {
     if (x.day !== lastDay){ html += `<div class="pg-day">${esc(x.day)}</div>`; lastDay = x.day; }
-    html += `<div class="pg-row"><div class="nm">${esc(x.name)}<div class="ft"><bdi dir="ltr">${x.from} → ${x.to}</bdi></div></div><div class="pc" style="color:${color(x.pct)}"><bdi dir="ltr">${fmtPct(x.pct)}</bdi></div></div>`;
+    html += `<div class="pg-row"><div class="nm">${esc(x.name)}<div class="ft">${x.from} ← ${x.to}</div></div><div class="pc" style="color:${color(x.pct)}"><bdi dir="ltr">${fmtPct(x.pct)}</bdi></div></div>`;
   });
   if (r.missing.length) html += `<details class="trend-note" style="margin-top:10px"><summary>עוד ${r.missing.length} תרגילים בלי השוואה (חדשים או בלי אימונים בשני החלונות)</summary>${r.missing.map(esc).join(' · ')}</details>`;
   body.innerHTML = html;
@@ -6275,7 +6297,7 @@ document.getElementById('coachOverlay').addEventListener('click', (e) => {
 });
 
 // bump on every change that reaches the phone, and add a line to "History of changes" in CLAUDE.md
-const APP_VERSION = '1.54';
+const APP_VERSION = '1.55';
 const APP_VERSION_DATE = '19.10.2026';
 document.getElementById('appVersion').textContent = `גרסה ${APP_VERSION} · ${APP_VERSION_DATE}`;
 
