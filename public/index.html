@@ -1794,6 +1794,7 @@ const DEFAULT_DAYS = [
       { id: 'split_squat', name: 'ספליט סקוואט בהטיה קדימה (ישבן)', target: '8 עד 12 חזרות · גו נוטה קדימה, שוק אנכית · RIR 1 עד 2 · מנוחה 2 דק׳' },
       { id: 'goblet_squat', name: 'גובלט סקוואט (משקולת יד/קטלבל)', target: '8 עד 12 חזרות · RIR 2 · מנוחה 2 דק׳' },
       { id: 'rdl_db', name: 'דדליפט רומני עם משקולות', target: '8 עד 12 חזרות · RIR 1 עד 2 · מנוחה 2 דק׳', sets: 4 },
+      { id: 'leg_curl_standing_cable', name: 'כפיפת ברך בכבל בעמידה', target: '10 עד 15 חזרות לכל רגל · RIR 1 · מנוחה 60 שנ׳', sets: 2 },
       { id: 'calf_seated', name: 'תאומים בישיבה', target: '12 עד 20 חזרות · RIR 0 עד 1 · מנוחה 60 עד 90 שנ׳' },
       { id: 'abs_cable', name: 'בטן (כבל)', target: '10 עד 15 חזרות · RIR 1 · מנוחה 60 שנ׳' },
     ]
@@ -1886,6 +1887,16 @@ async function applyBarDefaults(){
     if (ci !== -1) lB.exercises.splice(ci, 1, { ...RDL_DB }); else lB.exercises.push({ ...RDL_DB });
     const rdlA = lA && lA.exercises.find(e => e.id === 'rdl');
     if (rdlA && !(rdlA.sets >= 4)) rdlA.sets = 4;
+    changed = true;
+  }
+  // 19.10.2026: no exercise flexed the knee (the RDLs only hinge), so the short head of the hamstrings got almost nothing.
+  // The user chose the standing cable curl: 2 sets per leg right after the dumbbell RDL. Runs once (flag on rdl_db),
+  // so removing it later in edit mode is respected. Same id as before v1.45 → its old history comes back.
+  const rdlB = lB && lB.exercises.find(e => e.id === 'rdl_db');
+  if (rdlB && !rdlB.curlBack){
+    if (!lB.exercises.some(e => e.id === 'leg_curl_standing_cable'))
+      lB.exercises.splice(lB.exercises.indexOf(rdlB) + 1, 0, { id: 'leg_curl_standing_cable', name: 'כפיפת ברך בכבל בעמידה', target: '10 עד 15 חזרות לכל רגל · RIR 1 · מנוחה 60 שנ׳', sets: 2 });
+    rdlB.curlBack = 1;
     changed = true;
   }
   // 12.10.2026: leg raises at the end of תחתון א failed — hip flexors are spent after squats/RDL, so the abs
@@ -6130,7 +6141,7 @@ document.getElementById('coachOverlay').addEventListener('click', (e) => {
 });
 
 // bump on every change that reaches the phone, and add a line to "History of changes" in CLAUDE.md
-const APP_VERSION = '1.52';
+const APP_VERSION = '1.53';
 const APP_VERSION_DATE = '19.10.2026';
 document.getElementById('appVersion').textContent = `גרסה ${APP_VERSION} · ${APP_VERSION_DATE}`;
 
