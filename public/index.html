@@ -1348,6 +1348,21 @@
   .wk-stalls{ display:flex; flex-direction:column; gap:8px; margin-bottom:16px; }
   .wk-stalls > div{ border:1px solid #ffb347; border-radius:10px; padding:8px 10px; font-size:13px; line-height:1.45; }
   .wk-stalls span{ color:#ffb347; }
+  /* progress report (v1.54) */
+  .pg-verdict{ border:1px solid var(--accent); border-radius:14px; padding:12px; margin-bottom:14px; }
+  .pg-verdict .t{ font-size:17px; font-weight:800; line-height:1.35; }
+  .pg-verdict .w{ font-size:13px; opacity:.85; margin-top:4px; line-height:1.45; }
+  .pg-stats{ display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:8px; margin-bottom:16px; }
+  .pg-stat{ background:var(--bg); border-radius:12px; padding:9px 6px; text-align:center; }
+  .pg-stat b{ display:block; font-size:18px; font-weight:800; }
+  .pg-stat span{ color:var(--muted); font-size:11.5px; line-height:1.3; display:block; }
+  .pg-day{ color:var(--muted); font-size:13px; font-weight:800; margin:14px 0 6px; }
+  .pg-row{ display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; background:var(--bg); border-radius:12px; padding:9px 12px; margin-bottom:6px; }
+  .pg-row .nm{ font-size:14px; font-weight:700; min-width:0; flex:1 1 150px; }
+  .pg-row .ft{ color:var(--muted); font-size:12px; margin-top:2px; font-weight:500; }
+  .pg-row .pc{ font-size:16px; font-weight:800; white-space:nowrap; }
+  .wk-prog{ width:100%; text-align:right; display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; background:var(--bg); border:1px solid var(--line); color:var(--text); border-radius:12px; padding:10px 12px; font:inherit; font-size:14px; margin-bottom:16px; }
+  .wk-prog span{ color:var(--muted); font-size:12.5px; }
   .history-day-tabs{ flex-wrap:wrap; }
   .history-day-tabs .history-day-tab{ flex:1 0 auto; padding-inline:8px; }
   .stall-note{ border:1px solid #ffb347; color:#ffb347; border-radius:10px; padding:7px 10px; font-size:12.5px; line-height:1.45; margin:0 0 10px; }
@@ -1562,6 +1577,7 @@
     </div>
     <div style="padding:10px 18px 24px;display:flex;flex-direction:column;gap:10px;">
       <button class="reset-btn" id="openWeeklyBtn" style="text-align:right;"><i data-ic="trend"></i> סיכום שבועי — הצעד לשבוע הבא</button>
+      <button class="reset-btn" id="openProgressBtn" style="text-align:right;"><i data-ic="chart"></i> דוח התקדמות — כוח, משקל ומותן</button>
       <button class="reset-btn" id="openCoachBtn" style="text-align:right;"><i data-ic="trophy"></i> דוח מאמן — שדרוגים</button>
       <button class="reset-btn" id="openBwBtn" style="text-align:right;"><i data-ic="scale"></i> מעקב משקל גוף</button>
       <button class="reset-btn" id="openNutBtn" style="text-align:right;"><i data-ic="apple"></i> יומן תזונה</button>
@@ -1588,6 +1604,16 @@
       <button class="history-close" id="weeklyCloseBtn" aria-label="סגור"><i data-ic="x"></i></button>
     </div>
     <div id="weeklyBody" style="padding:16px 18px 30px"></div>
+  </div>
+</div>
+
+<div class="history-overlay" id="progressOverlay">
+  <div class="history-panel">
+    <div class="history-head">
+      <h2>דוח התקדמות</h2>
+      <button class="history-close" id="progressCloseBtn" aria-label="סגור"><i data-ic="x"></i></button>
+    </div>
+    <div id="progressBody" style="padding:16px 18px 30px"></div>
   </div>
 </div>
 
@@ -5838,11 +5864,13 @@ async function renderWeekly(){
   }));
   const waist = waistTrend(await loadWaistLog());
   const [icon, actTitle, actWhy] = weeklyAction({ workouts, protein, coach, stalled, totals, waist });
+  const prog = progressReport(timeline);
   const head = `<div class="wk-head">
       <div class="wk-count"><b><bdi>${workouts}</bdi></b><span>מתוך ${PLANNED_PER_WEEK} אימונים</span></div>
       <div class="wk-dots">${Array.from({ length: PLANNED_PER_WEEK }, (_, i) => `<i class="${i < workouts ? 'on' : ''}"></i>`).join('')}</div>
     </div>
     <div class="wk-action"><div class="wk-action-k">הצעד לשבוע הבא</div><div class="wk-action-t">${icon} ${actTitle}</div><div class="wk-action-w">${actWhy}</div></div>
+    ${prog.ready ? `<button type="button" class="wk-prog" id="wkProgBtn"><b>📈 כוח ב-${prog.weeks} שבועות: <bdi dir="ltr">${fmtPct(prog.median)}</bdi></b><span>לדוח ההתקדמות ←</span></button>` : ''}
     ${stalled.length ? `<div class="trend-title" style="margin-top:4px">תרגילים תקועים</div><div class="wk-stalls">${stalled.map(x => `<div><b>${esc(x.name)}</b> · ${x.k} אימונים<br><span>${x.todo}</span></div>`).join('')}</div>` : ''}`;
   const rows = MUSCLE_ORDER.filter(m => totals[m]).map(m => {
     const n = totals[m];
@@ -5858,6 +5886,8 @@ async function renderWeekly(){
       <div style="color:var(--muted);font-size:13px;margin-bottom:10px">שבוע ${week} בבלוק הנוכחי. מומלץ שבוע קל כל 5 עד 8 שבועות, או מוקדם יותר אם יש ירידה בביצועים, שינה גרועה או כאב מתמשך.</div>
       <button class="reset-btn" id="newBlockBtn">סיימתי דילוד — התחל בלוק חדש</button>
     </div>`;
+  const pb = document.getElementById('wkProgBtn');
+  if (pb) pb.addEventListener('click', openProgress);
   document.getElementById('newBlockBtn').addEventListener('click', async () => {
     deloadStart = isoDate(new Date());
     try { await window.storage.set('deload-start', deloadStart, false); } catch (e) {}
@@ -5866,6 +5896,110 @@ async function renderWeekly(){
     showToast('בלוק חדש התחיל ✓');
   });
 }
+
+/* ---------------- progress report (v1.54) ----------------
+   Is the training working? Strength per exercise now vs about a month ago, read together with the
+   weight rate and the waist: strength up + weight up + waist steady = building muscle.
+   Window: from the first session in the last PROG_MAX_DAYS (or the start of the log, if later).
+   "Then" = best session in its first PROG_WIN days, "now" = best session in the last PROG_WIN days
+   (never overlapping). Score = sessionScore, the same as the stall rule. Today's session is left out. */
+const PROG_MAX_DAYS = 42, PROG_MIN_DAYS = 21, PROG_WIN = 14, PROG_UP = 2.5;
+function topSetText(sets){
+  const val = (x) => Number(x.weight) > 0 ? Number(x.weight) * (1 + Number(x.reps) / 30) : Number(x.reps);
+  const b = sets.reduce((m, x) => (!m || val(x) > val(m)) ? x : m, null);
+  if (!b) return '';
+  return Number(b.weight) > 0 ? `${kgToDisplayUnit(Number(b.weight))}×${b.reps}` : `${b.reps} חז׳`;
+}
+function progressReport(timeline){
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const tStr = todayStr();
+  const lo = new Date(today); lo.setDate(lo.getDate() - PROG_MAX_DAYS);
+  let first = null;
+  Object.values(timeline).forEach(list => list.forEach(x => {
+    if (x.date && x.date >= lo && x.dateStr !== tStr && (!first || x.date < first)) first = x.date;
+  }));
+  if (!first) return { ready: false };
+  const days = Math.round((today - first) / 86400000);
+  if (days < PROG_MIN_DAYS){
+    const at = new Date(first); at.setDate(at.getDate() + PROG_MIN_DAYS);
+    return { ready: false, from: first, readyAt: at };
+  }
+  const thenEnd = new Date(first); thenEnd.setDate(thenEnd.getDate() + PROG_WIN);
+  const nowFrom = new Date(today); nowFrom.setDate(nowFrom.getDate() - PROG_WIN);
+  if (nowFrom < thenEnd) nowFrom.setTime(thenEnd.getTime());
+  const best = (arr) => arr.reduce((m, x) => { const v = sessionScore(x.sets); return (!m || v > m.v) ? { v, x } : m; }, null);
+  const rows = [], missing = [], seen = new Set();
+  DAYS.forEach(day => activeExercises(day).forEach(ex => {
+    if (seen.has(ex.id)) return;
+    seen.add(ex.id);
+    const list = (timeline[ex.id] || []).filter(x => x.dateStr !== tStr)
+      .map(x => ({ ...x, sets: x.sets.filter(y => !(y.reps != null && y.reps > 40)) })).filter(x => x.sets.length);
+    const a = best(list.filter(x => x.date >= first && x.date < thenEnd));
+    const b = best(list.filter(x => x.date >= nowFrom));
+    if (!a || !b || !a.v){ missing.push(ex.name); return; }
+    rows.push({ id: ex.id, name: ex.name, day: day.label, pct: (b.v / a.v - 1) * 100, from: topSetText(a.x.sets), to: topSetText(b.x.sets) });
+  }));
+  const sorted = rows.map(r => r.pct).sort((x, y) => x - y);
+  const median = sorted.length ? (sorted.length % 2 ? sorted[(sorted.length - 1) / 2] : (sorted[sorted.length / 2 - 1] + sorted[sorted.length / 2]) / 2) : null;
+  return { ready: rows.length > 0, from: first, weeks: Math.round(days / 7), rows, missing, median,
+    up: rows.filter(r => r.pct >= PROG_UP).length, down: rows.filter(r => r.pct <= -PROG_UP).length };
+}
+const fmtPct = (v) => `${v > 0 ? '+' : v < 0 ? '−' : ''}${Math.abs(Math.round(v))}%`;
+function progressVerdict(r, rate, waist){
+  const gaining = rate !== null && rate >= WEIGHT_GAIN_TARGET.min;
+  const waistOk = waist && waist.rate !== null && !waist.fast;
+  if (r.median >= PROG_UP){
+    if (waist && waist.fast) return ['💪 הכוח עולה — אבל המותן גדלה מהר', 'חלק מהעלייה במשקל הוא שומן. מעקב הקלוריות כבר לוקח את זה בחשבון.', '#ffb347'];
+    if (gaining) return ['✓ אתה בונה שריר', `הכוח עולה והמשקל עולה${waistOk ? ' והמותן יציבה' : ''} — בדיוק מה שצריך.${waist && waist.rate === null ? ' מדידת מותן שבועית תאשר שזה שריר.' : ''}`, 'var(--accent)'];
+    return ['✓ הכוח עולה', 'בשבועות הראשונים רוב השיפור הוא למידה של התנועה. כדי לבנות שריר לאורך זמן המשקל צריך לעלות לאט — מעקב הקלוריות ביומן התזונה אומר כמה לאכול.', 'var(--accent)'];
+  }
+  if (r.median <= -PROG_UP) return ['⚠️ ירידה בכוח', `אם זה נמשך — כנראה עייפות מצטברת. זה שבוע ${blockWeek()} בבלוק: שקול שבוע קל (דילוד), ובדוק שינה ואוכל.`, '#ffb347'];
+  if (gaining) return ['⚠️ המשקל עולה, הכוח עומד', 'אם זה ימשיך, חלק מהעלייה כנראה שומן. העיקר: עוד חזרה או עוד משקל בכל אימון — התחל מהתרגילים התקועים.', '#ffb347'];
+  return ['הכוח יציב', 'כדי להתקדם: חזרה אחת או משקל אחד יותר בכל אימון, ומספיק קלוריות כדי שהמשקל יעלה לאט.', 'var(--muted)'];
+}
+async function renderProgress(){
+  const body = document.getElementById('progressBody');
+  let timeline = {};
+  try { timeline = await exerciseTimeline(); } catch (e) {}
+  const r = progressReport(timeline);
+  if (!r.ready){
+    body.innerHTML = r.readyAt
+      ? `<div class="pg-verdict" style="border-color:var(--line)"><div class="t">הדוח יהיה מוכן ב-${shortDate(r.readyAt)}</div><div class="w">צריך 3 שבועות של אימונים כדי לראות מגמה אמיתית בכוח. האימון הראשון שנספר: ${shortDate(r.from)}.</div></div>`
+      : '<div class="pg-verdict" style="border-color:var(--line)"><div class="t">עוד אין מספיק אימונים</div><div class="w">הדוח משווה את הכוח שלך עכשיו לעומת לפני כחודש, בכל תרגיל. הוא יופיע אחרי 3 שבועות של אימונים.</div></div>';
+    return;
+  }
+  const rate = await computeWeightRate();
+  const waist = waistTrend(await loadWaistLog());
+  const [vt, vw, vc] = progressVerdict(r, rate, waist);
+  const color = (p) => p >= PROG_UP ? 'var(--accent)' : p <= -PROG_UP ? '#ffb347' : 'var(--muted)';
+  const rateTxt = rate === null ? '—' : `${rate > 0 ? '+' : ''}${rate.toFixed(2)}`;
+  const waistTxt = !waist.last ? '—' : waist.rate === null ? `${waist.last.cm}` : fmtCm(waist.rate);
+  let html = `<div class="pg-verdict" style="border-color:${vc}"><div class="t" style="color:${vc}">${vt}</div><div class="w">${vw}</div></div>
+    <div class="pg-stats">
+      <div class="pg-stat"><b style="color:${color(r.median)}"><bdi dir="ltr">${fmtPct(r.median)}</bdi></b><span>כוח · חציון<br>${r.up} עלו · ${r.down} ירדו</span></div>
+      <div class="pg-stat"><b><bdi dir="ltr">${rateTxt}</bdi></b><span>ק״ג בשבוע<br>משקל גוף</span></div>
+      <div class="pg-stat"><b><bdi dir="ltr">${waistTxt}</bdi></b><span>${waist.rate === null ? 'ס״מ<br>מותן (אין מגמה)' : 'ס״מ ב-4 שב׳<br>מותן'}</span></div>
+    </div>
+    <div class="trend-note" style="margin-bottom:6px">הסט הטוב ביותר ב-${PROG_WIN} הימים הראשונים (מ-${shortDate(r.from)}) לעומת ${PROG_WIN} הימים האחרונים · ${r.weeks} שבועות. האחוז מחשב את כל הסטים — גם חזרה שנוספה נספרת.</div>`;
+  let lastDay = null;
+  r.rows.forEach(x => {
+    if (x.day !== lastDay){ html += `<div class="pg-day">${esc(x.day)}</div>`; lastDay = x.day; }
+    html += `<div class="pg-row"><div class="nm">${esc(x.name)}<div class="ft"><bdi dir="ltr">${x.from} → ${x.to}</bdi></div></div><div class="pc" style="color:${color(x.pct)}"><bdi dir="ltr">${fmtPct(x.pct)}</bdi></div></div>`;
+  });
+  if (r.missing.length) html += `<details class="trend-note" style="margin-top:10px"><summary>עוד ${r.missing.length} תרגילים בלי השוואה (חדשים או בלי אימונים בשני החלונות)</summary>${r.missing.map(esc).join(' · ')}</details>`;
+  body.innerHTML = html;
+}
+function openProgress(){
+  closeAllSheets();
+  document.getElementById('progressBody').innerHTML = '<div class="trend-note">מחשב…</div>';
+  document.getElementById('progressOverlay').classList.add('open');
+  renderProgress();
+}
+document.getElementById('openProgressBtn').addEventListener('click', openProgress);
+document.getElementById('progressCloseBtn').addEventListener('click', () => document.getElementById('progressOverlay').classList.remove('open'));
+document.getElementById('progressOverlay').addEventListener('click', (e) => {
+  if (e.target.id === 'progressOverlay') document.getElementById('progressOverlay').classList.remove('open');
+});
 
 document.getElementById('openWeeklyBtn').addEventListener('click', () => {
   document.getElementById('moreOverlay').classList.remove('open');
@@ -6141,7 +6275,7 @@ document.getElementById('coachOverlay').addEventListener('click', (e) => {
 });
 
 // bump on every change that reaches the phone, and add a line to "History of changes" in CLAUDE.md
-const APP_VERSION = '1.53';
+const APP_VERSION = '1.54';
 const APP_VERSION_DATE = '19.10.2026';
 document.getElementById('appVersion').textContent = `גרסה ${APP_VERSION} · ${APP_VERSION_DATE}`;
 
