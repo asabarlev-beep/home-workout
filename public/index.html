@@ -4882,6 +4882,7 @@ async function createCloudBackup(quiet){
       method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ data: await gzipB64(json), size: json.length, keys }),
     });
+    if (res.status === 429) { if (!quiet) showToast('כבר נשמרו 4 גיבויים היום — אפשר שוב מחר'); return false; }
     if (!res.ok) throw new Error('status ' + res.status);
     await window.storage.set('auto-backup-last', isoDate(new Date()), false);
     return true;
@@ -5978,7 +5979,7 @@ document.getElementById('coachOverlay').addEventListener('click', (e) => {
 });
 
 // bump on every change that reaches the phone, and add a line to "History of changes" in CLAUDE.md
-const APP_VERSION = '1.50';
+const APP_VERSION = '1.51';
 const APP_VERSION_DATE = '19.10.2026';
 document.getElementById('appVersion').textContent = `גרסה ${APP_VERSION} · ${APP_VERSION_DATE}`;
 

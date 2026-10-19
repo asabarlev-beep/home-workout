@@ -64,14 +64,20 @@ async function kvPut(env, req, key) {
   }
   if (!body || typeof body.value !== "string" || !Number.isFinite(body.updated)) return json({ error: "bad_request" }, 400);
   if (body.value.length > MAX_VALUE) return json({ error: "too_large" }, 413);
+  // A time in the future would win every later write (a wrong phone clock, or someone with a stolen session
+  // dating junk to the year 3000): clamp to now, and let a row already dated in the future be overwritten.
+  const now = Date.now();
   await env.DB.prepare(
-    "INSERT INTO kv (key, value, updated) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated = excluded.updated WHERE excluded.updated >= kv.updated"
-  ).bind(key, body.value, Math.trunc(body.updated)).run();
+    "INSERT INTO kv (key, value, updated) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated = excluded.updated WHERE excluded.updated >= kv.updated OR kv.updated > ?"
+  ).bind(key, body.value, Math.min(Math.trunc(body.updated), now), now).run();
   return json({ ok: true });
 }
 // Cloud backups: full snapshots (gzip + base64, made by the app) in their own table, never touched by
 // the key/value sync, so a bad value that syncs cannot overwrite them. The newest BACKUP_KEEP are kept.
-const BACKUP_KEEP = 12;
+// A stolen session must not be able to push every good backup out with junk: at most BACKUP_PER_DAY new
+// backups a day, and besides the newest BACKUP_KEEP the newest backup older than 7 days and older than 30 days
+// are always kept (new backups can never be dated in the past).
+const BACKUP_KEEP = 12, BACKUP_PER_DAY = 4, DAY_MS = 864e5;
 const MAX_BACKUP = 1.9e6; // D1 rows are limited to 2 MB
 async function ensureBackups(env) {
   await env.DB.prepare(
@@ -89,9 +95,17 @@ async function backupCreate(env, req) {
   }
   if (!body || typeof body.data !== "string" || !Number.isFinite(body.size) || !Number.isFinite(body.keys)) return json({ error: "bad_request" }, 400);
   await ensureBackups(env);
+  const dayKey = "backup:" + hourKey().slice(0, 10);
+  if (await count(env, dayKey) >= BACKUP_PER_DAY) return json({ error: "too_many_backups" }, 429);
+  await bump(env, dayKey);
   const row = await env.DB.prepare("INSERT INTO backups (created, size, keys, data) VALUES (?, ?, ?, ?) RETURNING id")
     .bind(Date.now(), Math.trunc(body.size), Math.trunc(body.keys), body.data).first();
-  await env.DB.prepare("DELETE FROM backups WHERE id NOT IN (SELECT id FROM backups ORDER BY created DESC, id DESC LIMIT ?)").bind(BACKUP_KEEP).run();
+  const now = Date.now();
+  await env.DB.prepare(
+    "DELETE FROM backups WHERE id NOT IN (SELECT id FROM backups ORDER BY created DESC, id DESC LIMIT ?)" +
+    " AND id NOT IN (SELECT id FROM backups WHERE created < ? ORDER BY created DESC, id DESC LIMIT 1)" +
+    " AND id NOT IN (SELECT id FROM backups WHERE created < ? ORDER BY created DESC, id DESC LIMIT 1)"
+  ).bind(BACKUP_KEEP, now - 7 * DAY_MS, now - 30 * DAY_MS).run();
   return json({ ok: true, id: row.id });
 }
 async function backupList(env) {
