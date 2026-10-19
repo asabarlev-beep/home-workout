@@ -1246,7 +1246,8 @@
   .sum-cmp{ text-align:center; font-size:13px; margin:10px 0 4px; }
   .sum-sec{ font-weight:800; font-size:14px; margin:16px 0 6px; }
   .sum-row{ display:flex; justify-content:space-between; gap:10px; background:var(--bg); border-radius:12px; padding:9px 12px; margin-bottom:6px; font-size:14px; }
-  .sum-row b{ color:var(--accent); white-space:nowrap; }
+  .sum-row{ flex-wrap:wrap; }
+  .sum-row b{ color:var(--accent); }
   .coach-lead{ font-size:15px; line-height:1.5; margin:0 0 14px; }
   .coach-item{ background:var(--bg); border-radius:14px; padding:12px 14px; margin-bottom:10px; border-inline-start:4px solid var(--line); }
   .coach-item.high{ border-inline-start-color:var(--danger); }
@@ -2226,6 +2227,25 @@ async function clearNoteDrafts(dayKey){
   if (changed){ try { await window.storage.set('note-drafts', JSON.stringify(drafts), false); } catch (e) {} }
 }
 
+// movement → its newest session in ANY plan day {date, rec}, and its best PR across days
+async function groupLastMap(){
+  const m = {};
+  for (const d of DAYS){
+    const best = datedLasts(await loadDayData(d.key), await loadSetLog(d.key), d.setsCount);
+    Object.entries(best).forEach(([id, b]) => { const c = canonId(id); if (!m[c] || b.date > m[c].date) m[c] = b; });
+  }
+  return m;
+}
+async function groupPrMap(){
+  const m = {};
+  const score = (p) => p ? (Number(p.e1rm) || est1RM(Number(p.weight) || 0, Number(p.reps) || 0)) : 0;
+  for (const d of DAYS){
+    const prs = (await loadDayData(d.key)).prs || {};
+    Object.entries(prs).forEach(([id, p]) => { const c = canonId(id); if (p && (!m[c] || score(p) > score(m[c]))) m[c] = p; });
+  }
+  return m;
+}
+
 async function renderExercises(){
   const day = DAYS.find(d => d.key === currentDayKey);
   document.getElementById('todayLabel').textContent = new Date().toLocaleDateString('he-IL', innerWidth < 300 ? { weekday: 'short', day: 'numeric', month: 'short' } : { weekday: 'long', day: 'numeric', month: 'long' });
@@ -2236,19 +2256,22 @@ async function renderExercises(){
   const data = await loadDayData(currentDayKey);
   const drafts = await loadNoteDrafts();
   const todayDate = todayStr();
+  const gLast = await groupLastMap(), gPr = await groupPrMap();
   const list = document.getElementById('exerciseList');
   list.innerHTML = '';
   videoStore = {};
 
   activeExercises(day).forEach(ex => {
     // an exercise brought back to the plan is missing from the latest session, so look further back
-    let lastForEx = normalizeExRecord(data.last ? data.last[ex.id] : null);
+    // "last time" = the newest session of this movement in any plan day (v1.57)
+    const g = gLast[canonId(ex.id)];
+    let lastForEx = g ? normalizeExRecord(JSON.parse(JSON.stringify(g.rec))) : normalizeExRecord(data.last ? data.last[ex.id] : null);
     if (!lastForEx || !(lastForEx.sets || []).some(s => hasSetData(s))){
       const older = (data.history || []).map(s => normalizeExRecord(s.exercises ? s.exercises[ex.id] : null))
         .find(r => r && (r.sets || []).some(s => hasSetData(s)));
       if (older) lastForEx = older;
     }
-    const pr = data.prs ? data.prs[ex.id] : null;
+    const pr = gPr[canonId(ex.id)] || (data.prs ? data.prs[ex.id] : null);
     // the note left for this exercise last time: from the saved workout, or a typed note that never reached "סיום"
     const draft = drafts[currentDayKey + '|' + ex.id];
     const prevNote = (lastForEx && lastForEx.note) || (draft && draft.date !== todayDate ? draft.text : '');
@@ -2624,8 +2647,76 @@ function fillSessionFromLog(session, log, setsCount){
 
 // per exercise: the most recent date with recorded sets — a finished workout (already filled from set-log)
 // or ✓ sets of a workout not finished yet. Exercises with nothing recorded keep their previous hint.
-function buildLastFromData(data, log, setsCount){
-  const out = {};
+/* ---------------- the same exercise in two plan days (v1.57) ----------------
+   Two plan exercises are the SAME movement when they share an id, or share a name once the words in
+   brackets are dropped ("הרמות צד" = "הרמות צד (משקולות יד)"). The same movement is one progression:
+   one target (reps · RIR · rest), one dumbbells/bar setting, and "last time", the next-weight hint, the PR,
+   the stall warning, the chart, the coach report and the progress report all read both days.
+   Each day keeps its own number of sets. Ids are never changed, so stored history stays as it is. */
+const exNameKey = (n) => String(n || '').replace(/\([^)]*\)/g, ' ').replace(/\s+/g, ' ').trim();
+let EX_CANON = {};
+const canonId = (id) => EX_CANON[id] || id;
+function buildExGroups(){
+  EX_CANON = {};
+  const byName = {};
+  DAYS.forEach(d => d.exercises.forEach(e => {
+    if (EX_CANON[e.id]) return;
+    const k = exNameKey(e.name);
+    if (!byName[k]) byName[k] = e.id;
+    EX_CANON[e.id] = byName[k];
+  }));
+}
+// the active plan exercises of the same movement, in plan order
+const groupOf = (id) => DAYS.flatMap(d => activeExercises(d)).filter(e => canonId(e.id) === canonId(id));
+
+// a target with a rep range, by the kind of exercise — without a range the app never says when to go up
+function defaultTarget(name){
+  if (/תאומים|calf/i.test(name)) return '12 עד 20 חזרות · RIR 0 עד 1 · מנוחה 60 עד 90 שנ׳';
+  if (/סקוואט|דדליפט|לחיצ|חתירה|משיכ|מתח|לאנג|ספליט|מכרע|היפ ?טראסט|squat|deadlift|press|row|pull ?up|lunge|thrust/i.test(name)) return '8 עד 12 חזרות · RIR 1 עד 2 · מנוחה 2 דק׳';
+  return '10 עד 15 חזרות · RIR 0 עד 1 · מנוחה 60 עד 90 שנ׳';
+}
+const withRange = (target, name) => repRange(target) ? target : defaultTarget(name) + (target && String(target).trim() ? ' · ' + String(target).trim() : '');
+
+// copy target / dumbbells / bar from one exercise to the rest of its movement
+function syncGroupFrom(src){
+  let changed = false;
+  groupOf(src.id).forEach(e => {
+    if (e === src) return;
+    if (e.target !== src.target){ e.target = src.target; changed = true; }
+    if (isPair(e) !== isPair(src)){ e.pair = isPair(src); changed = true; }
+    if (barOf(e) !== barOf(src)){ e.bar = barOf(src); changed = true; }
+  });
+  return changed;
+}
+
+// on every start: group, give every exercise a rep range, and make the same movement match in every day
+async function unifyPlan(){
+  buildExGroups();
+  let changed = false;
+  const filled = [], unified = [];
+  const seen = new Set();
+  DAYS.flatMap(d => activeExercises(d)).forEach(e => {
+    const c = canonId(e.id);
+    if (seen.has(c)) return;
+    seen.add(c);
+    const list = groupOf(e.id);
+    let src = list.find(x => repRange(x.target));
+    if (!src){ src = list[0]; src.target = withRange(src.target, src.name); filled.push(src.name); changed = true; }
+    // the dumbbells setting: an explicit choice wins, else ×2 if any day's name says two dumbbells
+    const explicit = list.find(x => x.pair !== undefined);
+    const pair = explicit ? !!explicit.pair : list.some(x => isPair(x));
+    if (list.some(x => isPair(x) !== pair)) list.forEach(x => { x.pair = pair; });
+    const barSrc = list.find(x => x.bar !== undefined);
+    if (barSrc) src.bar = barSrc.bar;
+    if (syncGroupFrom(src)){ changed = true; unified.push(exNameKey(src.name)); }
+  });
+  if (changed) await saveOverrides();
+  const msg = [filled.length && `נוסף טווח חזרות ל: ${filled.join(', ')}`, unified.length && `אוחד בין האימונים: ${unified.join(', ')}`].filter(Boolean).join(' · ');
+  if (msg) setTimeout(() => showToast(msg), 2500);
+}
+
+// newest session per exercise id in one plan day, with its date: finished workouts + days that only have ✓ sets
+function datedLasts(data, log, setsCount){
   const best = {}; // exId -> { date, rec }
   const consider = (exId, dateStr, rec) => {
     const d = parseHeDate(dateStr);
@@ -2647,6 +2738,11 @@ function buildLastFromData(data, log, setsCount){
       consider(exId, dateStr, rec);
     });
   });
+  return best;
+}
+function buildLastFromData(data, log, setsCount){
+  const out = {};
+  const best = datedLasts(data, log, setsCount);
   Object.entries(data.last || {}).forEach(([exId, r]) => { if (!best[exId]) out[exId] = r; });
   Object.entries(best).forEach(([exId, b]) => { out[exId] = JSON.parse(JSON.stringify(b.rec)); });
   return out;
@@ -2754,8 +2850,11 @@ async function editExercise(dayKey, exId){
   if (name === null) return;
   const target = prompt('יעד (חזרות, RIR, מנוחה) — אפשר להשאיר ריק', ex.target || '');
   if (target === null) return;
+  const group = groupOf(ex.id); // the target (reps · RIR · rest) is shared by the same movement in every day
   if (cleanText(name)) ex.name = cleanText(name);
-  ex.target = cleanText(target);
+  ex.target = withRange(cleanText(target), ex.name);
+  group.forEach(e => { e.target = ex.target; });
+  buildExGroups();
   await saveOverrides();
   renderExercises();
 }
@@ -2783,7 +2882,12 @@ async function addExercise(dayKey, name, target, muscle){
   }
   const ex = { id: 'custom_' + Date.now(), name: clean, target: cleanText(target || '') };
   if (muscle) ex.muscle = muscle;
+  // the same movement already in another day: take its target and dumbbells/bar; else make sure there is a rep range
+  const twin = DAYS.flatMap(d => activeExercises(d)).find(e => exNameKey(e.name) === exNameKey(clean));
+  if (twin){ ex.target = twin.target; if (twin.pair !== undefined) ex.pair = twin.pair; if (twin.bar !== undefined) ex.bar = twin.bar; }
+  else ex.target = withRange(ex.target, clean);
   day.exercises.push(ex);
+  buildExGroups();
   await saveOverrides();
   renderExercises();
   showToast('התרגיל נוסף ✓');
@@ -2802,6 +2906,7 @@ async function changeExerciseSets(dayKey, exId, delta){
 async function togglePair(dayKey, exId){
   const ex = DAYS.find(d => d.key === dayKey).exercises.find(e => e.id === exId);
   ex.pair = !isPair(ex);
+  syncGroupFrom(ex);
   await saveOverrides();
   renderExercises();
   showToast(ex.pair ? 'שתי משקולות — רושמים משקל של אחת' : 'משקולת אחת');
@@ -2811,6 +2916,7 @@ async function cycleBar(dayKey, exId){
   const ex = DAYS.find(d => d.key === dayKey).exercises.find(e => e.id === exId);
   const i = BAR_OPTIONS.indexOf(barOf(ex));
   ex.bar = BAR_OPTIONS[(i + 1) % BAR_OPTIONS.length];
+  syncGroupFrom(ex);
   await saveOverrides();
   renderExercises();
   showToast(ex.bar ? `מוט ${ex.bar} ק״ג — רושמים משקל כולל` : 'בלי מוט');
@@ -3114,7 +3220,9 @@ async function refreshLiveHintsInner(exId){
   const finishedToday = data.history && data.history[0] && data.history[0].date === todayStr();
   const byIdx = finishedToday ? {} : (setLogByDate(await loadSetLog(currentDayKey), todayStr())[exId] || {});
   const todaySets = Object.keys(byIdx).map(Number).sort((a, b) => a - b).map(i => byIdx[i]);
-  const prev = prevRecFor(data, exId);
+  const g = (await groupLastMap())[canonId(exId)];
+  const prev = g ? normalizeExRecord(JSON.parse(JSON.stringify(g.rec))) : prevRecFor(data, exId);
+  const gpr = (await groupPrMap())[canonId(exId)];
   let live = null;
   if (todaySets.some(x => x && !x.warmup)){
     const pending = [...card.querySelectorAll('.set-save-btn')].filter(b => !b.classList.contains('saved'));
@@ -3135,7 +3243,7 @@ async function refreshLiveHintsInner(exId){
     }
   }
   const noteDiv = card.querySelector('.last-note');
-  if (noteDiv) noteDiv.innerHTML = lastNoteChips(prev, data.prs ? data.prs[exId] : null, ex, live);
+  if (noteDiv) noteDiv.innerHTML = lastNoteChips(prev, gpr || (data.prs ? data.prs[exId] : null), ex, live);
 }
 
 function updateLastNoteDisplay(exId, rec){
@@ -3771,7 +3879,7 @@ function buildLineChartSvg(labels, values){
 
 async function openChart(exId, exName){
   // the whole history of this exercise: finished workouts plus sets saved with ✓ (warm-ups left out)
-  const sessions = ((await exerciseTimeline())[exId] || []).filter(s => s.sets.some(x => x.weight != null));
+  const sessions = ((await exerciseTimeline())[canonId(exId)] || []).filter(s => s.sets.some(x => x.weight != null));
 
   document.getElementById('chartTitle').textContent = 'התקדמות · ' + exName;
   const body = document.getElementById('chartBody');
@@ -5888,7 +5996,7 @@ async function renderWeekly(){
   const workouts = workoutsThisWeek(timeline);
   const stalled = [];
   DAYS.forEach(d => activeExercises(d).forEach(ex => {
-    if (stalled.some(x => x.id === ex.id)) return;
+    if (stalled.some(x => canonId(x.id) === canonId(ex.id))) return;
     const st = stallInfo(ex, timeline);
     if (st.stuck) stalled.push({ id: ex.id, name: ex.name, ...st });
   }));
@@ -5960,9 +6068,9 @@ function progressReport(timeline){
   const best = (arr) => arr.reduce((m, x) => { const v = sessionScore(x.sets); return (!m || v > m.v) ? { v, x } : m; }, null);
   const rows = [], missing = [], seen = new Set();
   DAYS.forEach(day => activeExercises(day).forEach(ex => {
-    if (seen.has(ex.id)) return;
-    seen.add(ex.id);
-    const list = (timeline[ex.id] || []).filter(x => x.dateStr !== tStr)
+    if (seen.has(canonId(ex.id))) return;
+    seen.add(canonId(ex.id));
+    const list = (timeline[canonId(ex.id)] || []).filter(x => x.dateStr !== tStr)
       .map(x => ({ ...x, sets: x.sets.filter(y => !(y.reps != null && y.reps > 40)) })).filter(x => x.sets.length);
     const a = best(list.filter(x => x.date >= first && x.date < thenEnd));
     const b = best(list.filter(x => x.date >= nowFrom));
@@ -6071,7 +6179,8 @@ async function exerciseTimeline(){
       });
     });
     Object.entries(byDate).forEach(([exId, dates]) => {
-      out[exId] = (out[exId] || []).concat(Object.entries(dates).map(([dateStr, sets]) => ({ date: parseHeDate(dateStr), dateStr, sets })));
+      const c = canonId(exId); // the same movement in two plan days is one timeline (v1.57)
+      out[c] = (out[c] || []).concat(Object.entries(dates).map(([dateStr, sets]) => ({ date: parseHeDate(dateStr), dateStr, sets })));
     });
   }
   Object.values(out).forEach(list => list.sort((a, b) => a.date - b.date));
@@ -6121,7 +6230,7 @@ function stallRun(sessions){
 // is this exercise stuck, and what to do about it (finished sessions only — today's half-done workout is not a stall)
 function stallInfo(ex, timeline){
   const today = todayStr();
-  const sessions = (timeline[ex.id] || []).filter(s => s.dateStr !== today)
+  const sessions = (timeline[canonId(ex.id)] || []).filter(s => s.dateStr !== today)
     .map(s => ({ ...s, sets: s.sets.filter(x => !(x.reps != null && x.reps > 40)) })).filter(s => s.sets.length);
   const k = sessions.length >= 3 ? stallRun(sessions) : 0;
   const last = sessions[sessions.length - 1];
@@ -6157,7 +6266,8 @@ async function buildCoachReport(){
   const add = (level, title, why, act) => items.push({ level, title, why, act });
   const timeline = await exerciseTimeline();
   const exList = [];
-  DAYS.forEach(d => activeExercises(d).forEach(ex => exList.push({ ...ex, dayKey: d.key, dayLabel: d.label })));
+  const seenEx = new Set(); // the same movement in two days is reported once
+  DAYS.forEach(d => activeExercises(d).forEach(ex => { if (seenEx.has(canonId(ex.id))) return; seenEx.add(canonId(ex.id)); exList.push({ ...ex, dayKey: d.key, dayLabel: d.label }); }));
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const daysAgo = (d) => Math.round((today - d) / 86400000);
 
@@ -6166,7 +6276,7 @@ async function buildCoachReport(){
   let enoughHistory = 0;
   const bodyweight = isBodyweightExercise;
   exList.forEach(ex => {
-    const all = timeline[ex.id] || [];
+    const all = timeline[canonId(ex.id)] || [];
     // obvious typos (e.g. 86 reps) would distort every calculation, so they are reported and left out
     all.forEach(s => s.sets.forEach(x => { if (x.reps != null && x.reps > 40) suspicious.push(`${ex.name}: ${x.reps} חזרות (${s.dateStr})`); }));
     const sessions = all.map(s => ({ ...s, sets: s.sets.filter(x => !(x.reps != null && x.reps > 40)) })).filter(s => s.sets.length);
@@ -6305,7 +6415,7 @@ document.getElementById('coachOverlay').addEventListener('click', (e) => {
 });
 
 // bump on every change that reaches the phone, and add a line to "History of changes" in CLAUDE.md
-const APP_VERSION = '1.56';
+const APP_VERSION = '1.57';
 const APP_VERSION_DATE = '19.10.2026';
 document.getElementById('appVersion').textContent = `גרסה ${APP_VERSION} · ${APP_VERSION_DATE}`;
 
@@ -6313,6 +6423,7 @@ async function init(){
   const overrides = await loadOverrides();
   DAYS = buildDays(overrides);
   try { await applyBarDefaults(); } catch (e) { console.error(e); }
+  try { await unifyPlan(); } catch (e) { console.error(e); }
   try { await repairSessionsFromSetLog(); } catch (e) { console.error(e); }
   await loadDeload();
   renderDeloadBanner();
