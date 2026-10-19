@@ -1,5 +1,6 @@
 const enc = new TextEncoder();
-const json = (obj, status = 200, headers = {}) => new Response(JSON.stringify(obj), { status, headers: { "content-type": "application/json", ...headers } });
+// API answers carry personal data: never cached, never sniffed as another type
+const json = (obj, status = 200, headers = {}) => new Response(JSON.stringify(obj), { status, headers: { "content-type": "application/json", "cache-control": "no-store", "x-content-type-options": "nosniff", ...headers } });
 async function hmacHex(key, msg) {
   const k = await crypto.subtle.importKey("raw", enc.encode(key), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
   const sig = await crypto.subtle.sign("HMAC", k, enc.encode(msg));
@@ -21,15 +22,23 @@ async function authed(env, req) {
   const m = /(?:^|;\s*)session=([0-9a-f]+)/.exec(req.headers.get("cookie") || "");
   return !!m && safeEqual(m[1], await sessionToken(env));
 }
+// Failed logins are limited per device (IP) — 10 an hour — so a stranger guessing cannot lock the owner out,
+// plus a global ceiling of 50 an hour against guessing from many addresses.
+const FAIL_PER_IP = 10, FAIL_ALL = 50;
+async function count(env, key) {
+  const row = await env.DB.prepare("SELECT n FROM usage WHERE key = ?").bind(key).first();
+  return row ? row.n : 0;
+}
 async function login(env, req) {
-  const failKey = "loginfail:" + hourKey();
-  const row = await env.DB.prepare("SELECT n FROM usage WHERE key = ?").bind(failKey).first();
-  if (row && row.n >= 10) return json({ error: "too_many_attempts" }, 429);
+  const ip = req.headers.get("cf-connecting-ip") || "unknown";
+  const allKey = "loginfail:" + hourKey(), ipKey = allKey + ":" + ip;
+  if (await count(env, ipKey) >= FAIL_PER_IP || await count(env, allKey) >= FAIL_ALL) return json({ error: "too_many_attempts" }, 429);
   const body = await req.json().catch(() => ({}));
   const given = await hmacHex("pw-check", String(body.password ?? ""));
   const real = await hmacHex("pw-check", env.APP_PASSWORD);
   if (!safeEqual(given, real)) {
-    await bump(env, failKey);
+    await bump(env, ipKey);
+    await bump(env, allKey);
     return json({ error: "unauthorized" }, 401);
   }
   const token = await sessionToken(env);

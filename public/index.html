@@ -1834,7 +1834,8 @@ function buildDays(overrides){
     return {
       key: d.key, order: d.order, label: d.label, muscles: d.muscles,
       setsCount: (ov && ov.setsCount) ? ov.setsCount : 3,
-      exercises: (ov && ov.exercises) ? ov.exercises.map(e => ({...e})) : d.exercises.map(e => ({...e}))
+      // names and targets go into HTML: strip markup characters whatever the source (synced or imported data)
+      exercises: ((ov && ov.exercises) ? ov.exercises : d.exercises).map(e => ({ ...e, name: String(e.name ?? '').replace(/[<>"&]/g, ''), target: String(e.target ?? '').replace(/[<>"&]/g, '') }))
     };
   });
 }
@@ -5977,7 +5978,7 @@ document.getElementById('coachOverlay').addEventListener('click', (e) => {
 });
 
 // bump on every change that reaches the phone, and add a line to "History of changes" in CLAUDE.md
-const APP_VERSION = '1.49';
+const APP_VERSION = '1.50';
 const APP_VERSION_DATE = '19.10.2026';
 document.getElementById('appVersion').textContent = `גרסה ${APP_VERSION} · ${APP_VERSION_DATE}`;
 
