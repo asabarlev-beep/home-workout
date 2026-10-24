@@ -2647,24 +2647,76 @@ function fillSessionFromLog(session, log, setsCount){
 
 // per exercise: the most recent date with recorded sets — a finished workout (already filled from set-log)
 // or ✓ sets of a workout not finished yet. Exercises with nothing recorded keep their previous hint.
-/* ---------------- the same exercise in two plan days (v1.57) ----------------
-   Two plan exercises are the SAME movement when they share an id, or share a name once the words in
-   brackets are dropped ("הרמות צד" = "הרמות צד (משקולות יד)"). The same movement is one progression:
+/* ---------------- the same exercise in two plan days (v1.57, rule fixed in v1.58) ----------------
+   Two plan exercises are the SAME movement when they share an id, have exactly the same name, or are listed
+   in SAME_MOVEMENT. v1.57 also dropped the words in brackets — wrong: brackets carry the difference
+   ("כפיפת מרפקים (ראש קצר)" ≠ "(ראש ארוך)"), so two curls became one. Never match on part of a name.
+   The same movement is one progression:
    one target (reps · RIR · rest), one dumbbells/bar setting, and "last time", the next-weight hint, the PR,
    the stall warning, the chart, the coach report and the progress report all read both days.
    Each day keeps its own number of sets. Ids are never changed, so stored history stays as it is. */
-const exNameKey = (n) => String(n || '').replace(/\([^)]*\)/g, ' ').replace(/\s+/g, ' ').trim();
+const exNameKey = (n) => String(n || '').replace(/\s+/g, ' ').trim();
+// plan exercises that are one movement under two names (dumbbell lateral raises in עליון ב and in כתף וידיים)
+const SAME_MOVEMENT = [['lateral_raise', 'lateral_cable']];
 let EX_CANON = {};
 const canonId = (id) => EX_CANON[id] || id;
 function buildExGroups(){
   EX_CANON = {};
   const byName = {};
+  SAME_MOVEMENT.forEach(ids => ids.forEach(id => { EX_CANON[id] = ids[0]; }));
   DAYS.forEach(d => d.exercises.forEach(e => {
     if (EX_CANON[e.id]) return;
     const k = exNameKey(e.name);
     if (!byName[k]) byName[k] = e.id;
     EX_CANON[e.id] = byName[k];
   }));
+}
+
+/* v1.58: undo v1.57's wrong merges. Exercises that the old bracket-dropping rule joined and the new rule keeps
+   apart got each other's target / dumbbells / bar. Put back what they had in the newest cloud backup made
+   before v1.57 reached the phone. Runs once ('fix-v157' = done); without a connection it tries again next start. */
+const V157_LIVE = Date.UTC(2026, 9, 19, 18, 27, 30);
+async function repairV157Merges(){
+  try { const r = await window.storage.get('fix-v157', false); if (r && r.value) return; } catch (e) {}
+  const done = async () => { try { await window.storage.set('fix-v157', new Date().toISOString(), false); } catch (e) {} };
+  const oldKey = (n) => String(n || '').replace(/\([^)]*\)/g, ' ').replace(/\s+/g, ' ').trim();
+  const all = DAYS.flatMap(d => d.exercises.map(e => ({ d, e })));
+  const oldCanon = {}, byName = {};
+  all.forEach(({ e }) => { if (oldCanon[e.id]) return; const k = oldKey(e.name); if (!byName[k]) byName[k] = e.id; oldCanon[e.id] = byName[k]; });
+  const victims = all.filter(({ e }) => all.some(o => o.e.id !== e.id && oldCanon[o.e.id] === oldCanon[e.id] && canonId(o.e.id) !== canonId(e.id)));
+  if (!victims.length) return done();
+  let items;
+  try {
+    const res = await fetch('/api/backups', { credentials: 'same-origin' });
+    if (!res.ok) return; // not logged in / offline: try again next start
+    items = (await res.json()).items || [];
+  } catch (e) { return; }
+  const b = items.filter(x => x.created < V157_LIVE).sort((x, y) => y.created - x.created)[0];
+  const names = [...new Set(victims.map(v => v.e.name))];
+  if (!b){
+    await done();
+    setTimeout(() => showToast(`הפרדתי שוב: ${names.join(' · ')}. אין גיבוי מלפני 19.10 — בדוק את היעד שלהם ב-✏️`), 3000);
+    return;
+  }
+  let ov = {};
+  try {
+    const res = await fetch('/api/backups/' + encodeURIComponent(b.id), { credentials: 'same-origin' });
+    if (!res.ok) return;
+    const payload = JSON.parse(await gunzipB64((await res.json()).data));
+    ov = JSON.parse((payload && payload.data && payload.data['day-overrides']) || '{}');
+  } catch (e) { return; }
+  let changed = false;
+  victims.forEach(({ d, e }) => {
+    const old = ((ov[d.key] && ov[d.key].exercises) || []).find(x => x.id === e.id);
+    if (!old) return;
+    ['target', 'pair', 'bar'].forEach(k => {
+      if (old[k] === undefined){ if (k !== 'target' && e[k] !== undefined){ delete e[k]; changed = true; } }
+      else if (e[k] !== old[k]){ e[k] = old[k]; changed = true; }
+    });
+  });
+  if (changed) await saveOverrides();
+  await done();
+  setTimeout(() => showToast(`הפרדתי שוב והחזרתי את ההגדרות מהגיבוי של ${new Date(b.created).toLocaleDateString('he-IL')}: ${names.join(' · ')}`), 3000);
 }
 // the active plan exercises of the same movement, in plan order
 const groupOf = (id) => DAYS.flatMap(d => activeExercises(d)).filter(e => canonId(e.id) === canonId(id));
@@ -6415,14 +6467,15 @@ document.getElementById('coachOverlay').addEventListener('click', (e) => {
 });
 
 // bump on every change that reaches the phone, and add a line to "History of changes" in CLAUDE.md
-const APP_VERSION = '1.57';
-const APP_VERSION_DATE = '19.10.2026';
+const APP_VERSION = '1.58';
+const APP_VERSION_DATE = '24.10.2026';
 document.getElementById('appVersion').textContent = `גרסה ${APP_VERSION} · ${APP_VERSION_DATE}`;
 
 async function init(){
   const overrides = await loadOverrides();
   DAYS = buildDays(overrides);
   try { await applyBarDefaults(); } catch (e) { console.error(e); }
+  try { buildExGroups(); await repairV157Merges(); } catch (e) { console.error(e); }
   try { await unifyPlan(); } catch (e) { console.error(e); }
   try { await repairSessionsFromSetLog(); } catch (e) { console.error(e); }
   await loadDeload();
