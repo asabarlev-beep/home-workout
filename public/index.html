@@ -1349,6 +1349,14 @@
   .wk-stalls{ display:flex; flex-direction:column; gap:8px; margin-bottom:16px; }
   .wk-stalls > div{ border:1px solid #ffb347; border-radius:10px; padding:8px 10px; font-size:13px; line-height:1.45; }
   .wk-stalls span{ color:#ffb347; }
+  /* training break (v1.59) */
+  .brk-box{ border:1px solid var(--line); border-radius:14px; padding:12px; margin-bottom:14px; }
+  .brk-box .t{ font-size:17px; font-weight:800; line-height:1.35; }
+  .brk-box .w{ font-size:13px; opacity:.85; margin-top:4px; line-height:1.5; }
+  .brk-row{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:12px 0; }
+  .brk-row label{ font-weight:700; }
+  .brk-row input[type=date]{ flex:1 1 150px; min-width:0; background:var(--surface2); border:1px solid var(--line); color:var(--text); border-radius:12px; padding:10px; font:inherit; font-size:16px; color-scheme:dark; }
+  .brk-list{ margin:0; padding-inline-start:18px; font-size:13px; line-height:1.6; opacity:.9; }
   /* progress report (v1.54) */
   .pg-verdict{ border:1px solid var(--accent); border-radius:14px; padding:12px; margin-bottom:14px; }
   .pg-verdict .t{ font-size:17px; font-weight:800; line-height:1.35; }
@@ -1582,6 +1590,7 @@
       <button class="reset-btn" id="openCoachBtn" style="text-align:right;"><i data-ic="trophy"></i> דוח מאמן — שדרוגים</button>
       <button class="reset-btn" id="openBwBtn" style="text-align:right;"><i data-ic="scale"></i> מעקב משקל גוף</button>
       <button class="reset-btn" id="openNutBtn" style="text-align:right;"><i data-ic="apple"></i> יומן תזונה</button>
+      <button class="reset-btn" id="openBreakBtn" style="text-align:right;"><i data-ic="pause"></i> הפסקה מאימונים — מחלה, טיפול, חופשה</button>
       <button class="reset-btn" id="openBackupBtn" style="text-align:right;"><i data-ic="swap"></i> גיבוי וייבוא נתונים</button>
       <div id="appVersion" style="color:var(--muted);font-size:12px;text-align:center;margin-top:6px;"></div>
     </div>
@@ -1605,6 +1614,16 @@
       <button class="history-close" id="weeklyCloseBtn" aria-label="סגור"><i data-ic="x"></i></button>
     </div>
     <div id="weeklyBody" style="padding:16px 18px 30px"></div>
+  </div>
+</div>
+
+<div class="history-overlay" id="breakOverlay">
+  <div class="history-panel">
+    <div class="history-head">
+      <h2>הפסקה מאימונים</h2>
+      <button class="history-close" id="breakCloseBtn" aria-label="סגור"><i data-ic="x"></i></button>
+    </div>
+    <div id="breakBody" style="padding:16px 18px 30px"></div>
   </div>
 </div>
 
@@ -2257,6 +2276,10 @@ async function renderExercises(){
   const drafts = await loadNoteDrafts();
   const todayDate = todayStr();
   const gLast = await groupLastMap(), gPr = await groupPrMap();
+  // first session after a break: movements whose last session is from before it, up to 4 weeks after the return
+  COMEBACK = new Set();
+  const brk = breakState();
+  if (brk && (brk.active || brk.sinceReturn <= 28)) Object.entries(gLast).forEach(([c, g]) => { if (g.date < brk.from) COMEBACK.add(c); });
   const list = document.getElementById('exerciseList');
   list.innerHTML = '';
   videoStore = {};
@@ -2281,7 +2304,7 @@ async function renderExercises(){
     card.setAttribute('data-ex-card', ex.id);
 
     let rows = '';
-    const nextUp = nextWeightSuggestion(ex, lastForEx);
+    const nextUp = nextFromLast(ex, lastForEx);
     for (let i = 1; i <= setsFor(day, ex); i++){
       const lastSet = lastForEx && lastForEx.sets[i - 1] ? lastForEx.sets[i - 1] : null;
       const lastWeight = lastSet && lastSet.weight !== null && lastSet.weight !== undefined ? kgToDisplayUnit(lastSet.weight) : '';
@@ -3313,7 +3336,7 @@ function lastNoteChips(rec, pr, ex, live){
   const last = formatLastNote(rec);
   const hasLast = last.startsWith('לאחרונה');
   let html = '';
-  const next = live ? null : ex ? nextWeightSuggestion(ex, rec) : null;
+  const next = live ? null : ex ? nextFromLast(ex, rec) : null;
   if (live && live.nextSet){
     const n = live.nextSet;
     const cls = n.kind === 'up' ? ' up' : n.kind === 'down' ? ' down' : '';
@@ -3325,7 +3348,9 @@ function lastNoteChips(rec, pr, ex, live){
     html += `<span class="chip next${cls}">✓ בפעם הבאה: ${formatWeight(n.weight)}${n.kind === 'up' ? ' — הגעת לראש הטווח' : n.kind === 'down' ? ' — היה כבד מדי' : ''}</span>`;
   }
   if (next){
-    if (next.kind === 'down'){
+    if (next.comeback){
+      html += `<span class="chip next down">↩️ חזרה מהפסקה: ${formatWeight(next.weight)} · כ-90% ממה שהרמת לפני</span>`;
+    } else if (next.kind === 'down'){
       html += `<span class="chip next down">${ic('down')} הבא: ${formatWeight(next.weight)} · כבד מדי בפעם הקודמת</span>`;
     } else {
       const hint = next.kind === 'up' ? '' : next.kind === 'keep' ? ' · נסה להוסיף חזרה' : ` · קודם להגיע ל-${next.lo} חזרות`;
@@ -4974,6 +4999,7 @@ async function computeCalorieCoach(){
   const wt = weightTrend(await loadBodyWeightLog());
   const rate = wt.rate, span = wt.span;
   const out = { intake, loggedDays: days.length, weighIns: wt.n, span, rate };
+  if (breakHoldInfo()) return { ...out, breakHold: breakHoldInfo() };
   if (intake === null || days.length < CAL_MIN_DAYS || rate === null) return out;
 
   const maintenance = intake - rate * KCAL_PER_KG / 7;
@@ -4992,10 +5018,20 @@ async function computeCalorieCoach(){
     change = rate >= WEIGHT_GAIN_TARGET.min ? -150 : 0;
   }
   const result = { ...out, maintenance: round50(maintenance), change, target: round50(intake + change), waist, waistHold };
+  const brkHold = breakHoldInfo();
+  if (brkHold) return { ...result, change: 0, breakHold: brkHold };
   // a new calorie goal needs ~2 weeks to show on the scale: no new recommendation until then (v1.49)
   const lock = calorieLock(await loadNutritionGoal());
   if (lock) return { ...result, change: 0, target: result.target, locked: lock };
   return result;
+}
+
+// during a break, and for 2 weeks after it (the window must hold only post-break days), the coach recommends nothing
+function breakHoldInfo(){
+  const b = breakState();
+  if (!b || !(b.active || b.sinceReturn < CAL_WINDOW_DAYS)) return null;
+  const resume = new Date(b.until); resume.setDate(resume.getDate() + CAL_WINDOW_DAYS);
+  return { active: b.active, until: b.until, resume };
 }
 
 // the check period after the calorie goal was changed (goal.caloriesSetAt, ISO date), or null
@@ -5016,6 +5052,16 @@ async function renderCalorieCoach(){
   const num = (v) => Math.round(v).toLocaleString('he-IL');
   const title = `<div class="cc-title">🔥 מעקב קלוריות · ${CAL_WINDOW_DAYS} ימים אחרונים</div>`;
 
+  if (c.breakHold){
+    const h = c.breakHold, bc = breakCalories(goal);
+    box.innerHTML = h.active
+      ? `${title}<div class="cc-verdict" style="border-color:#8caaff"><span class="big" style="color:#c8d4ff">⏸️ הפסקה — אוכלים ברמת שמירה</span>
+        ${bc ? `כ-<b>${num(bc)}</b> קלוריות ביום (היעד ${num(goal.calories)} פחות העודף לבניית שריר).` : 'בלי עודף קלוריות.'} בלי אימונים העודף הולך בעיקר לשומן. חלבון נשאר <b>${goal.protein || DEFAULT_PROTEIN_GOAL}</b> ג׳ — הוא שומר על השריר.</div>
+        <div class="cc-note">עד ${shortDate(h.until)}. המעקב יחזור ב-${shortDate(h.resume)}, כשיהיו שבועיים של נתונים אחרי החזרה.</div>`
+      : `${title}<div class="cc-verdict" style="border-color:var(--accent)"><span class="big" style="color:var(--accent)">↩️ חוזרים ליעד ${goal.calories ? num(goal.calories) : ''}</span>
+        חזרת לאימונים, אז חוזרים לעודף הקטן. ההמלצות יחזרו ב-${shortDate(h.resume)}, כשיהיו שבועיים של נתונים אחרי ההפסקה.</div>`;
+    return;
+  }
   if (c.target === undefined){
     const needDays = Math.max(0, CAL_MIN_DAYS - c.loggedDays);
     const needW = Math.max(0, CAL_MIN_WEIGHINS - c.weighIns);
@@ -5077,6 +5123,7 @@ async function renderNutritionPanel(){
   const data = await loadNutritionDay(nutritionDate);
   const goal = await loadNutritionGoal();
   if (goal.protein == null) goal.protein = DEFAULT_PROTEIN_GOAL;
+  if (breakActive() && breakCalories(goal)) goal.calories = breakCalories(goal); // shown only — the saved goal stays
   const entries = data.entries || [];
 
   const totals = { calories: 0, protein: 0, carbs: 0, fat: 0 };
@@ -5908,6 +5955,101 @@ async function computeWeeklyVolume(){
   return totals;
 }
 
+/* ---------------- training break (v1.59) ----------------
+   Treatment, illness, a trip: 'training-break' = {from, until (the return day), reset}. While it runs the app stops
+   asking for workouts (weekly action, coach report), the calorie target drops to maintenance (goal − the ~275
+   kcal surplus — gaining without training is mostly fat) and protein stays. After it: the first session of each
+   exercise suggests ~10% less than before the break (lighterWeight), stall warnings and the progress report start
+   again from the return day, the calorie coach waits two weeks of post-break data, and a new training block
+   starts on the return day (the break was the rest). */
+let TRAINING_BREAK = null;
+let COMEBACK = new Set(); // movements whose last session was before the break (filled in renderExercises)
+const BREAK_SURPLUS = 275;
+const isoToDate = (s) => { const [y, m, d] = String(s).split('-').map(Number); return new Date(y, m - 1, d); };
+function breakState(){
+  if (!TRAINING_BREAK || !TRAINING_BREAK.from || !TRAINING_BREAK.until) return null;
+  const t = new Date(); t.setHours(0, 0, 0, 0);
+  const from = isoToDate(TRAINING_BREAK.from), until = isoToDate(TRAINING_BREAK.until);
+  return { from, until, active: t >= from && t < until, ended: t >= until, sinceReturn: Math.round((t - until) / 86400000) };
+}
+const breakActive = () => { const b = breakState(); return !!(b && b.active); };
+async function saveBreak(){ try { await window.storage.set('training-break', JSON.stringify(TRAINING_BREAK), false); } catch (e) {} }
+async function loadBreak(){
+  try { const r = await window.storage.get('training-break', false); if (r && r.value) TRAINING_BREAK = JSON.parse(r.value); } catch (e) {}
+  // 29.10.2026: the user is off training after a treatment, back on 4.11 — set up once for him
+  if (!TRAINING_BREAK && new Date() < new Date(2026, 10, 4)){ TRAINING_BREAK = { from: isoDate(new Date()), until: '2026-11-04' }; await saveBreak(); }
+  const b = breakState();
+  if (b && b.ended && !TRAINING_BREAK.reset){
+    deloadStart = TRAINING_BREAK.until;
+    try { await window.storage.set('deload-start', deloadStart, false); } catch (e) {}
+    TRAINING_BREAK.reset = true;
+    await saveBreak();
+  }
+}
+// sessions from before the last break don't count for stalls (strength dips after a break and comes back)
+const afterBreak = (sessions) => { const b = breakState(); return b ? sessions.filter(s => s.date && s.date >= b.from) : sessions; };
+// "what next" from last time, with the first session after a break at ~10% less
+function nextFromLast(ex, rec){
+  if (!COMEBACK.has(canonId(ex.id))) return nextWeightSuggestion(ex, rec);
+  const sets = ((rec && rec.sets) || []).filter(x => x && !x.warmup && x.weight != null && x.weight > 0);
+  if (!sets.length) return nextWeightSuggestion(ex, rec);
+  const top = Math.max(...sets.map(x => x.weight));
+  const range = repRange(ex.target);
+  return { kind: 'down', weight: isBodyweightExercise(ex) ? top : (lighterWeight(ex, top) ?? top), lo: range ? range.lo : null, from: top, comeback: true };
+}
+const breakCalories = (goal) => goal && goal.calories ? round50(goal.calories - BREAK_SURPLUS) : null;
+
+function renderBreakSheet(){
+  const body = document.getElementById('breakBody');
+  const b = breakState();
+  const def = new Date(); def.setDate(def.getDate() + 14);
+  const val = b && b.active ? TRAINING_BREAK.until : isoDate(def);
+  const what = `<ul class="brk-list">
+      <li>בלי תזכורות ואזהרות על אימונים</li>
+      <li>קלוריות ברמת שמירה (היעד פחות כ-${BREAK_SURPLUS}) — עלייה במשקל בלי אימון היא בעיקר שומן</li>
+      <li>חלבון ממשיך כרגיל — הוא שומר על השריר</li>
+      <li>אחרי החזרה: באימון הראשון של כל תרגיל המשקל המוצע נמוך בכ-10%</li>
+      <li>אחרי החזרה: מתחיל בלוק חדש, והתראות הקיפאון ודוח ההתקדמות נספרים מיום החזרה</li>
+    </ul>`;
+  body.innerHTML = (b && b.active
+    ? `<div class="brk-box" style="border-color:#8caaff"><div class="t">⏸️ בהפסקה עד ${shortDate(b.until)}</div><div class="w">מ-${shortDate(b.from)}. בשבועיים כמעט לא מאבדים שריר, והכוח חוזר תוך שבוע–שבועיים של אימונים.</div></div>`
+    : `<div class="brk-box"><div class="t">יוצא להפסקה?</div><div class="w">מחלה, טיפול או חופשה — כך האפליקציה לא תפרש את ההפסקה כקיפאון ולא תדחוף לאכול בעודף.</div></div>`)
+    + `<div class="brk-row"><label for="breakUntil">חוזר לאימונים ב:</label><input type="date" id="breakUntil" value="${val}" min="${isoDate(new Date())}"></div>`
+    + `<button class="save-btn" id="breakSaveBtn" style="width:100%">${b && b.active ? 'עדכן תאריך חזרה' : '⏸️ התחל הפסקה מהיום'}</button>`
+    + (b && b.active ? `<button class="reset-btn" id="breakEndBtn" style="width:100%;margin-top:8px">↩️ חזרתי — סיים הפסקה היום</button>` : '')
+    + `<div class="trend-title" style="margin-top:18px">מה משתנה</div>${what}`;
+  document.getElementById('breakSaveBtn').addEventListener('click', async () => {
+    const v = document.getElementById('breakUntil').value;
+    if (!v || isoToDate(v) <= new Date()){ showToast('בחר תאריך חזרה עתידי'); return; }
+    TRAINING_BREAK = { from: b && b.active ? TRAINING_BREAK.from : isoDate(new Date()), until: v };
+    await saveBreak();
+    showToast(`הפסקה עד ${shortDate(isoToDate(v))} ✓`);
+    afterBreakChange();
+  });
+  const end = document.getElementById('breakEndBtn');
+  if (end) end.addEventListener('click', async () => {
+    TRAINING_BREAK.until = isoDate(new Date());
+    TRAINING_BREAK.reset = false;
+    await saveBreak();
+    await loadBreak();
+    showToast('ברוך השב 💪 — באימון הראשון של כל תרגיל המשקל המוצע נמוך בכ-10%');
+    afterBreakChange();
+  });
+}
+function afterBreakChange(){
+  document.getElementById('breakOverlay').classList.remove('open');
+  renderDeloadBanner();
+  renderExercises();
+  renderTodayStrip();
+}
+document.getElementById('openBreakBtn').addEventListener('click', () => {
+  closeAllSheets();
+  renderBreakSheet();
+  document.getElementById('breakOverlay').classList.add('open');
+});
+document.getElementById('breakCloseBtn').addEventListener('click', () => document.getElementById('breakOverlay').classList.remove('open'));
+document.getElementById('breakOverlay').addEventListener('click', (e) => { if (e.target.id === 'breakOverlay') e.target.classList.remove('open'); });
+
 let deloadStart = null; // ISO date the current training block began
 
 async function loadDeload(){
@@ -5930,6 +6072,18 @@ function blockWeek(){
 function renderDeloadBanner(){
   const el = document.getElementById('deloadBanner');
   if (!el || !deloadStart) return;
+  const b = breakState();
+  if (b && (b.active || b.sinceReturn < 7)){
+    el.style.display = 'block';
+    el.style.borderColor = '#8caaff';
+    el.style.cursor = 'pointer';
+    el.onclick = () => document.getElementById('openBreakBtn').click();
+    el.textContent = b.active
+      ? `⏸️ הפסקה מאימונים עד ${shortDate(b.until)} · חלבון כרגיל, קלוריות ברמת שמירה. לשינוי — הקש כאן.`
+      : '↩️ חזרת מהפסקה — באימון הראשון של כל תרגיל המשקל המוצע נמוך בכ-10%. בלוק חדש התחיל.';
+    return;
+  }
+  el.onclick = null; el.style.cursor = '';
   const week = blockWeek();
   if (week < 5){ el.style.display = 'none'; return; }
   const late = week >= 8;
@@ -6025,6 +6179,9 @@ function workoutsThisWeek(timeline){
 
 // the ONE thing to do next week, by priority: show up → protein → calories → stuck exercise → weak muscle → keep going
 function weeklyAction({ workouts, protein, coach, stalled, totals, waist }){
+  const brk = breakState();
+  if (brk && brk.active) return ['⏸️', 'הפסקה — להתאושש', `בלי אימונים עד ${shortDate(brk.until)}. חלבון${protein ? ` ${protein.goal}` : ''} ג׳ ביום ממשיך — הוא שומר על השריר. קלוריות ברמת שמירה, בלי העודף.`];
+  if (brk && brk.sinceReturn < 7) return ['↩️', 'חזרה הדרגתית', 'באימון הראשון של כל תרגיל המשקל המוצע נמוך בכ-10% ממה שהרמת לפני ההפסקה. משם — ההתקדמות הרגילה. הכוח חוזר תוך שבוע–שבועיים.'];
   if (workouts < 3) return ['🗓️', 'להגיע ל-4 אימונים לפחות', `השבוע היו ${workouts}. בלי תדירות אין התקדמות — קבע מראש ימים ושעות לשבוע הבא.`];
   if (protein && protein.avg < protein.goal * 0.85) return ['🥩', `חלבון: להגיע ל-${protein.goal} ג׳ ביום`, `הממוצע השבוע ${Math.round(protein.avg)} ג׳. הוסף מנה של 30–40 ג׳ (יוגורט חלבון, קוטג׳, שייק) בארוחה שבה אתה הכי חסר.`];
   if (coach && coach.target !== undefined && coach.change) return ['🔥', `יעד קלוריות חדש: ${Math.round(coach.target).toLocaleString('he-IL')}`, coach.change > 0 ? 'המשקל עולה לאט מדי. הוסף את ההפרש בפחמימות סביב האימון.' : coach.waistHold ? 'המותן גדלה מהר מדי. הורד שומן מוסף ונשנושים, לא חלבון.' : 'המשקל עולה מהר מדי. הורד שומן מוסף ונשנושים, לא חלבון.'];
@@ -6104,6 +6261,8 @@ function progressReport(timeline){
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const tStr = todayStr();
   const lo = new Date(today); lo.setDate(lo.getDate() - PROG_MAX_DAYS);
+  const brk = breakState(); // strength is compared only from the return day on
+  if (brk){ if (brk.active) return { ready: false, onBreak: true }; if (brk.until > lo) lo.setTime(brk.until.getTime()); }
   let first = null;
   Object.values(timeline).forEach(list => list.forEach(x => {
     if (x.date && x.date >= lo && x.dateStr !== tStr && (!first || x.date < first)) first = x.date;
@@ -6153,7 +6312,9 @@ async function renderProgress(){
   try { timeline = await exerciseTimeline(); } catch (e) {}
   const r = progressReport(timeline);
   if (!r.ready){
-    body.innerHTML = r.readyAt
+    body.innerHTML = r.onBreak
+      ? '<div class="pg-verdict" style="border-color:#8caaff"><div class="t">⏸️ בהפסקה</div><div class="w">הדוח יחזור 3 שבועות אחרי החזרה, וישווה רק אימונים מיום החזרה — כך הירידה הזמנית אחרי ההפסקה לא תיראה כנסיגה.</div></div>'
+      : r.readyAt
       ? `<div class="pg-verdict" style="border-color:var(--line)"><div class="t">הדוח יהיה מוכן ב-${shortDate(r.readyAt)}</div><div class="w">צריך 3 שבועות של אימונים כדי לראות מגמה אמיתית בכוח. האימון הראשון שנספר: ${shortDate(r.from)}.</div></div>`
       : '<div class="pg-verdict" style="border-color:var(--line)"><div class="t">עוד אין מספיק אימונים</div><div class="w">הדוח משווה את הכוח שלך עכשיו לעומת לפני כחודש, בכל תרגיל. הוא יופיע אחרי 3 שבועות של אימונים.</div></div>';
     return;
@@ -6282,7 +6443,7 @@ function stallRun(sessions){
 // is this exercise stuck, and what to do about it (finished sessions only — today's half-done workout is not a stall)
 function stallInfo(ex, timeline){
   const today = todayStr();
-  const sessions = (timeline[canonId(ex.id)] || []).filter(s => s.dateStr !== today)
+  const sessions = afterBreak(timeline[canonId(ex.id)] || []).filter(s => s.dateStr !== today)
     .map(s => ({ ...s, sets: s.sets.filter(x => !(x.reps != null && x.reps > 40)) })).filter(s => s.sets.length);
   const k = sessions.length >= 3 ? stallRun(sessions) : 0;
   const last = sessions[sessions.length - 1];
@@ -6380,10 +6541,13 @@ async function buildCoachReport(){
   const week = blockWeek();
   const protein = await computeProteinWeek();
   const rate = await computeWeightRate();
+  const brkNow = breakActive();
+  if (brkNow) add('mid', `⏸️ הפסקה מאימונים עד ${shortDate(breakState().until)}`, 'בזמן ההפסקה הדוח לא מתריע על אימונים, נפח ודילוד.', 'חלבון כרגיל, קלוריות ברמת שמירה, שינה. אחרי החזרה — באימון הראשון של כל תרגיל כ-90% מהמשקל.');
 
   // ---- turn the signals into upgrades, most important first ----
   const listHtml = (arr, max = 5) => { const u = [...new Set(arr)]; return u.slice(0, max).map(t => `• ${t}`).join('<br>') + (u.length > max ? `<br>ועוד ${u.length - max}` : ''); };
-  if (dropped.length >= 2 || (dropped.length && week >= 5)){
+  if (brkNow){ /* a break is rest — no deload or fatigue advice */ }
+  else if (dropped.length >= 2 || (dropped.length && week >= 5)){
     add('high', 'סימני עייפות מצטברת', 'ירידה של יותר מ-7% בכוח המשוער לעומת השיא ב:<br>' + listHtml(dropped), week >= 5 ? `אתה בשבוע ${week} בבלוק. זה הזמן לשבוע דילוד: חצי מהסטים, אותם משקלים, בלי כישלון.` : 'בדוק שינה (7–9 שעות) וחלבון השבוע. אם הירידה נמשכת עוד אימון, קח שבוע דילוד.');
   } else if (week >= 8){
     add('high', `שבוע ${week} בלי דילוד`, 'אחרי גיל 40 ההתאוששות איטית יותר, ועייפות מצטברת מסתירה התקדמות.', 'תכנן את השבוע הבא כשבוע קל: חצי מהסטים, בלי כישלון. אחריו "התחל בלוק חדש" בסיכום השבועי.');
@@ -6393,12 +6557,13 @@ async function buildCoachReport(){
 
   if (suspicious.length) add('high', 'נתונים לבדיקה', listHtml(suspicious), 'אם זו טעות הקלדה, תקן או מחק את הסט בהיסטוריה ← "כל הסטים". נתון שגוי מבלבל את ההמלצות להעלאת משקל ואת השיאים.');
   if (tooHeavy.length) add('high', `חזרות מתחת לטווח (${new Set(tooHeavy).size} תרגילים)`, listHtml(tooHeavy, 8), 'איפה שמופיע משקל חדש — עבוד איתו כבר באימון הבא (הוא מופיע גם בכרטיס התרגיל, ו-✓ על שדה ריק שומר אותו). בשאר, רק סט אחד נפל מתחת לטווח: אותו משקל, ועוד חצי דקה מנוחה לפני הסט האחרון. בטווח החזרות השריר גדל, והמפרקים נשמרים.');
-  if (lowVol.length) add('high', 'נפח נמוך לשרירים גדולים', `ב-7 הימים האחרונים: ${lowVol.map(m => `${m} ${totals[m] || 0}`).join(' · ')} סטים. היעד 10–20 לשבוע.`, 'הוסף סט אחד לתרגיל הראשון של השריר בכל אימון שלו. מעלים בהדרגה, לא הכול בבת אחת.');
+  if (lowVol.length && !brkNow) add('high', 'נפח נמוך לשרירים גדולים', `ב-7 הימים האחרונים: ${lowVol.map(m => `${m} ${totals[m] || 0}`).join(' · ')} סטים. היעד 10–20 לשבוע.`, 'הוסף סט אחד לתרגיל הראשון של השריר בכל אימון שלו. מעלים בהדרגה, לא הכול בבת אחת.');
   if (stalled.length) add('mid', 'תרגילים תקועים', '2 אימונים ברצף או יותר בלי לשפר את הכוח המשוער:<br>' + listHtml(stalled), 'קודם שינה, חלבון ו-RIR 1–2 בסט האחרון. אם עוד שבועיים אין תזוזה — החלף וריאציה (למשל משקולות יד ↔ כבל) או הוסף סט.');
   if (tooLight.length) add('mid', 'משקל קל מדי', listHtml(tooLight), 'העלה משקל כבר באימון הבא. מעל הטווח זה כבר אימון סיבולת.');
   if (highVol.length) add('mid', 'נפח גבוה', `${highVol.map(m => `${m} ${totals[m]}`).join(' · ')} סטים בשבוע — מעל 20.`, 'מעל 20 סטים לשריר ההתאוששות אחרי 40 נפגעת. הורד סט מהתרגיל האחרון של השריר.');
-  if (onceAWeek.length && last7 >= 3) add('mid', 'שריר שעובד פעם בשבוע', `${onceAWeek.join(', ')} קיבלו השבוע אימון אחד בלבד.`, 'היעד פעמיים בשבוע לכל שריר. אם התוכנית מאפשרת, העבר 2–3 סטים לאימון נוסף.');
-  if (lastWorkout !== null && lastWorkout >= 4) add('high', `${lastWorkout} ימים בלי אימון`, 'הפסקה של כמה ימים לא מאבדת שריר, אבל רצף בונה אותו.', 'אימון אחד קצר היום-מחר מחזיר את הקצב. אפשר גם רק שני תרגילים ראשונים.');
+  if (onceAWeek.length && last7 >= 3 && !brkNow) add('mid', 'שריר שעובד פעם בשבוע', `${onceAWeek.join(', ')} קיבלו השבוע אימון אחד בלבד.`, 'היעד פעמיים בשבוע לכל שריר. אם התוכנית מאפשרת, העבר 2–3 סטים לאימון נוסף.');
+  if (brkNow){ /* days off are the plan */ }
+  else if (lastWorkout !== null && lastWorkout >= 4) add('high', `${lastWorkout} ימים בלי אימון`, 'הפסקה של כמה ימים לא מאבדת שריר, אבל רצף בונה אותו.', 'אימון אחד קצר היום-מחר מחזיר את הקצב. אפשר גם רק שני תרגילים ראשונים.');
   else if (last7 && last7 < 3) add('mid', `${last7} אימונים השבוע`, `התוכנית בנויה ל-${PLANNED_PER_WEEK} אימונים. פחות מזה, חלק מהשרירים לא מקבלים מספיק נפח.`, 'קבע מראש ביומן את האימונים של השבוע הבא.');
 
   if (protein && protein.avg < protein.goal * 0.85) add('high', 'חסר חלבון', `ממוצע ${Math.round(protein.avg)} ג׳ ליום מול יעד ${protein.goal} ג׳.`, 'הוסף מנת חלבון של 30–40 ג׳ (יוגורט חלבון, קוטג׳, שייק) בארוחה שבה אתה הכי חסר. אחרי 40 צריך יותר חלבון בכל ארוחה.');
@@ -6467,8 +6632,8 @@ document.getElementById('coachOverlay').addEventListener('click', (e) => {
 });
 
 // bump on every change that reaches the phone, and add a line to "History of changes" in CLAUDE.md
-const APP_VERSION = '1.58';
-const APP_VERSION_DATE = '24.10.2026';
+const APP_VERSION = '1.59';
+const APP_VERSION_DATE = '29.10.2026';
 document.getElementById('appVersion').textContent = `גרסה ${APP_VERSION} · ${APP_VERSION_DATE}`;
 
 async function init(){
@@ -6479,6 +6644,7 @@ async function init(){
   try { await unifyPlan(); } catch (e) { console.error(e); }
   try { await repairSessionsFromSetLog(); } catch (e) { console.error(e); }
   await loadDeload();
+  await loadBreak();
   renderDeloadBanner();
   selectDay(await pickDefaultDay());
   resetWorkoutClock();
