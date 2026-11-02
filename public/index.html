@@ -2057,6 +2057,12 @@ const prEst = (pr) => (pr.e1rm !== undefined ? pr.e1rm : est1RM(pr.weight, pr.re
 
 // rotation: the next workout after the last one trained; the same one for the rest of that day
 async function pickDefaultDay(){
+  // a workout chosen to open next ('next-workout') wins until the first set or workout is saved
+  try {
+    const r = await window.storage.get('next-workout', false);
+    const pin = r && r.value ? JSON.parse(r.value) : null;
+    if (pin && pin.day && DAYS.some(d => d.key === pin.day)) return pin.day;
+  } catch (e) {}
   let last = null;
   try {
     const res = await window.storage.get('rotation-last', false);
@@ -2088,6 +2094,14 @@ async function pickDefaultDay(){
   const i = last ? DAYS.findIndex(d => d.key === last.day) : -1;
   if (i < 0) return DAYS[0].key;
   return last.date === isoDate(new Date()) ? last.day : DAYS[(i + 1) % DAYS.length].key;
+}
+
+async function setNextWorkout(dayKey){
+  try { await window.storage.set('next-workout', JSON.stringify(dayKey ? { day: dayKey, set: new Date().toISOString() } : {}), false); } catch (e) {}
+}
+// called after a set or a workout is saved: the chosen workout has started, the rotation takes over
+async function clearNextWorkout(){
+  try { const r = await window.storage.get('next-workout', false); if (r && r.value && JSON.parse(r.value).day) await setNextWorkout(null); } catch (e) {}
 }
 
 async function markTrained(dayKey){
@@ -3155,6 +3169,7 @@ async function saveWorkout(){
   const ok = await saveDayData(currentDayKey, data);
   if (ok){
     await clearNoteDrafts(currentDayKey); // the notes are in the saved workout now
+    clearNextWorkout();
     markTrained(currentDayKey);
     const secs = workoutAccumulated + ((workoutRunning && workoutStartTime) ? Math.floor((Date.now() - workoutStartTime) / 1000) : 0);
     showWorkoutSummary(day, session, data.history[1] || null, newPRs, secs);
@@ -3532,6 +3547,7 @@ async function saveIndividualSet(btn, confirmed = false){
     reps, weight, warmup
   });
   log = log.slice(0, SET_LOG_MAX);
+  clearNextWorkout();
 
   try {
     const ok = await window.storage.set(key, JSON.stringify(log), false);
@@ -6029,6 +6045,7 @@ function renderBreakSheet(){
     const v = document.getElementById('breakUntil').value;
     if (!v || isoToDate(v) <= new Date()){ showToast('בחר תאריך חזרה עתידי'); return; }
     TRAINING_BREAK = { from: b && b.active ? TRAINING_BREAK.from : isoDate(new Date()), until: v, startDay: document.getElementById('breakStartDay').value };
+    await setNextWorkout(TRAINING_BREAK.startDay);
     await saveBreak();
     showToast(`הפסקה עד ${shortDate(isoToDate(v))} ✓`);
     afterBreakChange();
@@ -6037,6 +6054,7 @@ function renderBreakSheet(){
   if (end) end.addEventListener('click', async () => {
     TRAINING_BREAK.until = isoDate(new Date());
     TRAINING_BREAK.startDay = document.getElementById('breakStartDay').value;
+    await setNextWorkout(TRAINING_BREAK.startDay);
     TRAINING_BREAK.reset = false;
     await saveBreak();
     await loadBreak();
@@ -6641,7 +6659,7 @@ document.getElementById('coachOverlay').addEventListener('click', (e) => {
 });
 
 // bump on every change that reaches the phone, and add a line to "History of changes" in CLAUDE.md
-const APP_VERSION = '1.60';
+const APP_VERSION = '1.61';
 const APP_VERSION_DATE = '2.11.2026';
 document.getElementById('appVersion').textContent = `גרסה ${APP_VERSION} · ${APP_VERSION_DATE}`;
 
@@ -6654,6 +6672,12 @@ async function init(){
   try { await repairSessionsFromSetLog(); } catch (e) { console.error(e); }
   await loadDeload();
   await loadBreak();
+  // 2.11.2026: he asked to start with עליון א — set once
+  try { await window.storage.get('next-workout', false); } catch (e) {
+    let today = false; // not over a workout already started today
+    for (const d of DAYS) if ((await loadSetLog(d.key)).some(x => x.date === todayStr())) today = true;
+    await setNextWorkout(today ? null : 'd1');
+  }
   renderDeloadBanner();
   selectDay(await pickDefaultDay());
   resetWorkoutClock();
