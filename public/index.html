@@ -1355,6 +1355,7 @@
   .brk-box .w{ font-size:13px; opacity:.85; margin-top:4px; line-height:1.5; }
   .brk-row{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:12px 0; }
   .brk-row label{ font-weight:700; }
+  .brk-row select{ flex:1 1 150px; min-width:0; background:var(--surface2); border:1px solid var(--line); color:var(--text); border-radius:12px; padding:10px; font:inherit; font-size:16px; color-scheme:dark; }
   .brk-row input[type=date]{ flex:1 1 150px; min-width:0; background:var(--surface2); border:1px solid var(--line); color:var(--text); border-radius:12px; padding:10px; font:inherit; font-size:16px; color-scheme:dark; }
   .brk-list{ margin:0; padding-inline-start:18px; font-size:13px; line-height:1.6; opacity:.9; }
   /* progress report (v1.54) */
@@ -2078,6 +2079,9 @@ async function pickDefaultDay(){
     const inProgress = log.some(e => e.date === today) && !(data.history && data.history[0] && data.history[0].date === today);
     if (!best || latest > best.date || (+latest === +best.date && inProgress && !best.inProgress)) best = { idx, date: latest, inProgress };
   }
+  // after a break: until a workout is logged from the break's start, open the workout chosen to come back with
+  const comeback = TRAINING_BREAK && TRAINING_BREAK.startDay && TRAINING_BREAK.from && DAYS.some(d => d.key === TRAINING_BREAK.startDay) ? TRAINING_BREAK.startDay : null;
+  if (comeback && (!best || best.date < isoToDate(TRAINING_BREAK.from))) return comeback;
   if (best) return best.inProgress ? DAYS[best.idx].key : DAYS[(best.idx + 1) % DAYS.length].key;
 
   // no workouts recorded yet: fall back to the stored rotation
@@ -5978,6 +5982,8 @@ async function loadBreak(){
   try { const r = await window.storage.get('training-break', false); if (r && r.value) TRAINING_BREAK = JSON.parse(r.value); } catch (e) {}
   // 29.10.2026: the user is off training after a treatment, back on 4.11 — set up once for him
   if (!TRAINING_BREAK && new Date() < new Date(2026, 10, 4)){ TRAINING_BREAK = { from: isoDate(new Date()), until: '2026-11-04' }; await saveBreak(); }
+  // 2.11.2026: he asked to come back with עליון א — set once (only when no comeback day was chosen yet)
+  if (TRAINING_BREAK && TRAINING_BREAK.startDay === undefined && TRAINING_BREAK.until === '2026-11-04'){ TRAINING_BREAK.startDay = 'd1'; await saveBreak(); }
   const b = breakState();
   if (b && b.ended && !TRAINING_BREAK.reset){
     deloadStart = TRAINING_BREAK.until;
@@ -6015,13 +6021,14 @@ function renderBreakSheet(){
     ? `<div class="brk-box" style="border-color:#8caaff"><div class="t">⏸️ בהפסקה עד ${shortDate(b.until)}</div><div class="w">מ-${shortDate(b.from)}. בשבועיים כמעט לא מאבדים שריר, והכוח חוזר תוך שבוע–שבועיים של אימונים.</div></div>`
     : `<div class="brk-box"><div class="t">יוצא להפסקה?</div><div class="w">מחלה, טיפול או חופשה — כך האפליקציה לא תפרש את ההפסקה כקיפאון ולא תדחוף לאכול בעודף.</div></div>`)
     + `<div class="brk-row"><label for="breakUntil">חוזר לאימונים ב:</label><input type="date" id="breakUntil" value="${val}" min="${isoDate(new Date())}"></div>`
+    + `<div class="brk-row"><label for="breakStartDay">חוזר עם אימון:</label><select id="breakStartDay">${DAYS.map(d => `<option value="${d.key}"${d.key === ((TRAINING_BREAK && TRAINING_BREAK.startDay) || 'd1') ? ' selected' : ''}>${d.label}</option>`).join('')}</select></div>`
     + `<button class="save-btn" id="breakSaveBtn" style="width:100%">${b && b.active ? 'עדכן תאריך חזרה' : '⏸️ התחל הפסקה מהיום'}</button>`
     + (b && b.active ? `<button class="reset-btn" id="breakEndBtn" style="width:100%;margin-top:8px">↩️ חזרתי — סיים הפסקה היום</button>` : '')
     + `<div class="trend-title" style="margin-top:18px">מה משתנה</div>${what}`;
   document.getElementById('breakSaveBtn').addEventListener('click', async () => {
     const v = document.getElementById('breakUntil').value;
     if (!v || isoToDate(v) <= new Date()){ showToast('בחר תאריך חזרה עתידי'); return; }
-    TRAINING_BREAK = { from: b && b.active ? TRAINING_BREAK.from : isoDate(new Date()), until: v };
+    TRAINING_BREAK = { from: b && b.active ? TRAINING_BREAK.from : isoDate(new Date()), until: v, startDay: document.getElementById('breakStartDay').value };
     await saveBreak();
     showToast(`הפסקה עד ${shortDate(isoToDate(v))} ✓`);
     afterBreakChange();
@@ -6029,6 +6036,7 @@ function renderBreakSheet(){
   const end = document.getElementById('breakEndBtn');
   if (end) end.addEventListener('click', async () => {
     TRAINING_BREAK.until = isoDate(new Date());
+    TRAINING_BREAK.startDay = document.getElementById('breakStartDay').value;
     TRAINING_BREAK.reset = false;
     await saveBreak();
     await loadBreak();
@@ -6036,8 +6044,9 @@ function renderBreakSheet(){
     afterBreakChange();
   });
 }
-function afterBreakChange(){
+async function afterBreakChange(){
   document.getElementById('breakOverlay').classList.remove('open');
+  selectDay(await pickDefaultDay());
   renderDeloadBanner();
   renderExercises();
   renderTodayStrip();
@@ -6632,8 +6641,8 @@ document.getElementById('coachOverlay').addEventListener('click', (e) => {
 });
 
 // bump on every change that reaches the phone, and add a line to "History of changes" in CLAUDE.md
-const APP_VERSION = '1.59';
-const APP_VERSION_DATE = '29.10.2026';
+const APP_VERSION = '1.60';
+const APP_VERSION_DATE = '2.11.2026';
 document.getElementById('appVersion').textContent = `גרסה ${APP_VERSION} · ${APP_VERSION_DATE}`;
 
 async function init(){
