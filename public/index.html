@@ -6536,10 +6536,14 @@ async function buildCoachReport(){
       }
       else if (reps.length && reps.every(r => r > range.hi + 2)) tooLight.push(`${ex.name}: ${span} חזרות, יעד ${range.lo}–${range.hi}`);
     }
-    if (sessions.length >= 3){
-      enoughHistory++;
-      const before = sessions.slice(0, -2).map(s => bestE1RM(s.sets));
-      if (stallRun(sessions) >= STALL_MIN && !(next && next.kind === 'up')) stalled.push(ex.name);
+    if (sessions.length >= 3) enoughHistory++;
+    // v1.62: stalls and strength drops are judged only on sessions since the last break, like the exercise card.
+    // Before, the first workouts back (about 90% of the old weights, as the app advises) were compared with the
+    // peak from before the break, so almost every exercise showed up as "סימני עייפות מצטברת".
+    const recent = afterBreak(sessions);
+    if (recent.length >= 3){
+      const before = recent.slice(0, -2).map(s => bestE1RM(s.sets));
+      if (stallRun(recent) >= STALL_MIN && !(next && next.kind === 'up')) stalled.push(ex.name);
       const peak = Math.max(...before);
       if (peak > 0 && bestE1RM(last.sets) < peak * 0.93) dropped.push(ex.name);
     }
@@ -6659,8 +6663,8 @@ document.getElementById('coachOverlay').addEventListener('click', (e) => {
 });
 
 // bump on every change that reaches the phone, and add a line to "History of changes" in CLAUDE.md
-const APP_VERSION = '1.61';
-const APP_VERSION_DATE = '2.11.2026';
+const APP_VERSION = '1.62';
+const APP_VERSION_DATE = '15.11.2026';
 document.getElementById('appVersion').textContent = `גרסה ${APP_VERSION} · ${APP_VERSION_DATE}`;
 
 async function init(){
