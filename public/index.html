@@ -5971,9 +5971,16 @@ async function computeWeeklyVolume(){
     const exId = k.split('|')[1];
     const muscle = MUSCLE_OF[exId] || planMuscle[exId] || 'אחר';
     totals[muscle] = (totals[muscle] || 0) + n;
+    (ALSO_COUNTS[exId] || []).forEach(([m, f]) => { totals[m] = (totals[m] || 0) + n * f; });
   });
   return totals;
 }
+// v1.63: a second muscle that does real work in the movement gets half a set per set (fractional counting).
+// Split squat and sumo squat were counted only as glutes, so quads looked like 6 sets a week instead of ~9.
+const ALSO_COUNTS = {
+  split_squat: [['ארבע ראשי', 0.5]],
+  sumo_squat_db: [['ארבע ראשי', 0.5]],
+};
 
 /* ---------------- training break (v1.59) ----------------
    Treatment, illness, a trip: 'training-break' = {from, until (the return day), reset}. While it runs the app stops
@@ -6623,7 +6630,7 @@ function volumeSectionHtml(totals){
   }).join('');
   return `<div class="coach-sec">סטים לשריר · 7 ימים אחרונים</div>
     <div class="vol-grid">${rows}
-      <div class="vol-legend">סטים עובדים, בלי חימום. הקווים מסמנים 10 ו-20 — הטווח המומלץ לשבוע. <span style="color:#ffb347">כתום</span> = שריר גדול מתחת ל-10. ידיים, ישבן ותאומים מקבלים גם עבודה עקיפה מהתרגילים המורכבים.</div>
+      <div class="vol-legend">סטים עובדים, בלי חימום. הקווים מסמנים 10 ו-20 — הטווח המומלץ לשבוע. <span style="color:#ffb347">כתום</span> = שריר גדול מתחת ל-10. ידיים, ישבן ותאומים מקבלים גם עבודה עקיפה מהתרגילים המורכבים. ספליט סקוואט וסקוואט סומו נספרים גם כחצי סט לארבע ראשי.</div>
     </div>`;
 }
 
@@ -6663,8 +6670,8 @@ document.getElementById('coachOverlay').addEventListener('click', (e) => {
 });
 
 // bump on every change that reaches the phone, and add a line to "History of changes" in CLAUDE.md
-const APP_VERSION = '1.62';
-const APP_VERSION_DATE = '15.11.2026';
+const APP_VERSION = '1.63';
+const APP_VERSION_DATE = '16.11.2026';
 document.getElementById('appVersion').textContent = `גרסה ${APP_VERSION} · ${APP_VERSION_DATE}`;
 
 async function init(){
