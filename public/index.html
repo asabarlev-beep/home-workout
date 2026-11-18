@@ -1284,6 +1284,24 @@
   .nut-menu-txt .nw{ white-space:nowrap; }
   .nut-menu-btn{ flex:none; background:var(--accent); color:#111; border:0; border-radius:10px; padding:8px 12px; font-weight:800; font-size:13px; font-family:inherit; cursor:pointer; }
   .nut-menu-btn.done{ background:transparent; color:var(--accent); border:1px solid var(--accent); display:flex; flex-direction:column; align-items:center; gap:1px; line-height:1.2; }
+  .nm-note{ color:var(--muted); font-size:12px; margin:8px 0 2px; }
+  .nm-meal{ border-top:1px solid var(--line); padding:10px 0; }
+  .nm-meal > b{ display:block; font-size:13.5px; margin-bottom:4px; }
+  .nm-meal .nw, .nut-menu-txt .nw{ white-space:nowrap; }
+  .nm-item{ display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:4px 8px; padding:6px 0; }
+  .nm-name{ flex:1 1 140px; min-width:0; font-size:13px; line-height:1.35; }
+  .nm-name em{ display:block; font-style:normal; color:var(--muted); font-size:11.5px; }
+  .nm-ctl{ display:flex; align-items:center; gap:4px; }
+  .nm-ctl button{ width:32px; height:32px; border-radius:9px; border:1px solid #3a4351; background:var(--bg); color:var(--text); font-size:17px; font-weight:800; cursor:pointer; font-family:inherit; display:flex; align-items:center; justify-content:center; }
+  .nm-ctl span{ min-width:28px; text-align:center; font-weight:800; }
+  .nm-ctl .nm-del{ color:var(--muted); font-size:14px; }
+  .nm-add{ margin-top:6px; }
+  .nm-add input{ width:100%; box-sizing:border-box; background:var(--bg); border:1px dashed #4a5566; border-radius:10px; color:var(--text); padding:9px 10px; font-size:14px; font-family:inherit; }
+  .nm-sug .nut-suggest-item{ width:100%; }
+  .nm-none{ color:var(--muted); font-size:12px; padding:6px 2px; }
+  .nm-foot{ display:flex; gap:8px; margin-top:10px; }
+  .nm-foot button{ flex:1; margin:0; }
+  .nm-edit-btn{ display:inline-flex; align-items:center; gap:6px; margin-top:8px; font-size:13px; }
   .nut-menu-btn.done small{ color:var(--muted); font-weight:600; font-size:11px; }
   .cal-coach{ margin:0 18px 28px; background:var(--bg); border-radius:16px; padding:14px; }
   .cal-coach:empty{ display:none; }
@@ -4842,32 +4860,112 @@ async function renderRecentFoods(){
    the menu of the date it is on; "רשום" adds the meal's items as ordinary entries tagged menu:'<dow>|<meal>' (so a
    meal already logged that day shows ✓). Deleting an entry in the list undoes it like any other food. */
 const WEEK_MENU = [[{"meal": "בוקר", "items": [["2 מעדני חלבון", 300, 40, 28, 6], ["40 ג' גרנולה", 180, 4, 26, 7]]}, {"meal": "צהריים (כריך)", "items": [["4 פרוסות לחם מלא", 300, 12, 52, 4], ["טונה במים, קופסה מסוננת", 120, 26, 0, 1], ["כף מיונז לייט", 45, 0, 1, 4.5], ["ירקות לכריך (עגבנייה, מלפפון, חסה)", 25, 1, 5, 0.2]]}, {"meal": "ערב", "items": [["פרגית צלויה (150 ג')", 300, 38, 0, 16], ["אורז מבושל, כוס", 230, 4.5, 50, 0.5], ["סלט ירקות גדול", 50, 2, 10, 0.3], ["כף טחינה גולמית", 90, 2.6, 3, 8], ["2 תמרים מג'הול", 130, 1, 35, 0]]}, {"meal": "לפני שינה", "items": [["חצי גביע קוטג' 5% (125 ג')", 123, 13.5, 4, 6.5], ["תפוח", 80, 0.4, 21, 0.2]]}], [{"meal": "בוקר", "items": [["2 מעדני חלבון", 300, 40, 28, 6], ["40 ג' שיבולת שועל", 150, 5, 26, 3]]}, {"meal": "צהריים (כריך)", "items": [["4 פרוסות לחם מלא", 300, 12, 52, 4], ["חזה עוף צלוי (100 ג')", 165, 31, 0, 3.6], ["כף גדושה חומוס ממרח (30 ג')", 85, 2.5, 4, 6.5], ["ירקות לכריך (עגבנייה, מלפפון, חסה)", 25, 1, 5, 0.2]]}, {"meal": "ערב", "items": [["סלמון אפוי (150 ג')", 310, 33, 0, 19], ["בטטה אפויה (200 ג')", 170, 3, 40, 0.2], ["סלט ירקות גדול", 50, 2, 10, 0.3], ["כף טחינה גולמית", 90, 2.6, 3, 8], ["כפית שמן זית", 40, 0, 0, 4.5], ["2 תמרים מג'הול", 130, 1, 35, 0]]}, {"meal": "לפני שינה", "items": [["חצי גביע קוטג' 5% (125 ג')", 123, 13.5, 4, 6.5]]}], [{"meal": "בוקר", "items": [["2 מעדני חלבון", 300, 40, 28, 6], ["40 ג' גרנולה", 180, 4, 26, 7]]}, {"meal": "צהריים (כריך)", "items": [["4 פרוסות לחם מלא", 300, 12, 52, 4], ["פסטרמה עוף/הודו של גבנץ (80 ג')", 85, 15, 2, 1.5], ["2 פרוסות גבינה צהובה 9%", 105, 11, 0.5, 6.5], ["ירקות לכריך (עגבנייה, מלפפון, חסה)", 25, 1, 5, 0.2]]}, {"meal": "ערב", "items": [["בקר טחון 5% (150 ג' נא)", 210, 31, 0, 9], ["פסטה מבושלת, כוס", 220, 8, 43, 1.3], ["רוטב עגבניות", 60, 2, 10, 1], ["סלט ירקות גדול", 50, 2, 10, 0.3], ["כפית שמן זית", 40, 0, 0, 4.5], ["20 ג' שקדים", 115, 4, 4, 10]]}, {"meal": "לפני שינה", "items": [["חצי גביע קוטג' 5% (125 ג')", 123, 13.5, 4, 6.5], ["בננה", 105, 1.3, 27, 0.4]]}], [{"meal": "בוקר", "items": [["2 מעדני חלבון", 300, 40, 28, 6], ["40 ג' שיבולת שועל", 150, 5, 26, 3]]}, {"meal": "צהריים (כריך)", "items": [["4 פרוסות לחם מלא", 300, 12, 52, 4], ["2 ביצים קשות", 150, 13.0, 1.0, 10], ["גבינה לבנה 5% (100 ג')", 95, 9, 4, 5], ["ירקות לכריך (עגבנייה, מלפפון, חסה)", 25, 1, 5, 0.2]]}, {"meal": "ערב", "items": [["חזה עוף מבושל (150 ג')", 250, 46, 0, 5.5], ["קינואה מבושלת, כוס", 220, 8, 39, 3.5], ["ירקות מבושלים/מוקפצים", 60, 3, 12, 0.5], ["כפית שמן זית", 40, 0, 0, 4.5], ["2 תמרים מג'הול", 130, 1, 35, 0]]}, {"meal": "לפני שינה", "items": [["חצי גביע קוטג' 5% (125 ג')", 123, 13.5, 4, 6.5], ["בננה", 105, 1.3, 27, 0.4]]}], [{"meal": "בוקר", "items": [["2 מעדני חלבון", 300, 40, 28, 6], ["40 ג' גרנולה", 180, 4, 26, 7]]}, {"meal": "צהריים (כריך)", "items": [["4 פרוסות לחם מלא", 300, 12, 52, 4], ["טונה במים, קופסה מסוננת", 120, 26, 0, 1], ["כף מיונז לייט", 45, 0, 1, 4.5], ["ירקות לכריך (עגבנייה, מלפפון, חסה)", 25, 1, 5, 0.2]]}, {"meal": "ערב", "items": [["פרגית צלויה (150 ג')", 300, 38, 0, 16], ["בורגול מבושל, כוס", 150, 5.5, 34, 0.4], ["סלט ירקות גדול", 50, 2, 10, 0.3], ["כף טחינה גולמית", 90, 2.6, 3, 8], ["כפית שמן זית", 40, 0, 0, 4.5], ["2 תמרים מג'הול", 130, 1, 35, 0]]}, {"meal": "לפני שינה", "items": [["חצי גביע קוטג' 5% (125 ג')", 123, 13.5, 4, 6.5], ["תפוח", 80, 0.4, 21, 0.2]]}], [{"meal": "בוקר", "items": [["2 מעדני חלבון", 300, 40, 28, 6], ["40 ג' שיבולת שועל", 150, 5, 26, 3]]}, {"meal": "צהריים (כריך)", "items": [["4 פרוסות לחם מלא", 300, 12, 52, 4], ["חזה עוף צלוי (100 ג')", 165, 31, 0, 3.6], ["כף גדושה חומוס ממרח (30 ג')", 85, 2.5, 4, 6.5], ["ירקות לכריך (עגבנייה, מלפפון, חסה)", 25, 1, 5, 0.2]]}, {"meal": "ערב", "items": [["שקשוקה מ-3 ביצים", 300, 21.5, 11, 20], ["פיתה מלאה", 230, 8, 45, 2], ["גבינה לבנה 5% (100 ג')", 95, 9, 4, 5], ["סלט ירקות גדול", 50, 2, 10, 0.3]]}, {"meal": "לפני שינה", "items": [["חצי גביע קוטג' 5% (125 ג')", 123, 13.5, 4, 6.5], ["2 תמרים מג'הול", 130, 1, 35, 0]]}], [{"meal": "בוקר", "items": [["2 מעדני חלבון", 300, 40, 28, 6], ["40 ג' גרנולה", 180, 4, 26, 7]]}, {"meal": "צהריים (כריך)", "items": [["4 פרוסות לחם מלא", 300, 12, 52, 4], ["פסטרמה עוף/הודו של גבנץ (80 ג')", 85, 15, 2, 1.5], ["2 פרוסות גבינה צהובה 9%", 105, 11, 0.5, 6.5], ["ירקות לכריך (עגבנייה, מלפפון, חסה)", 25, 1, 5, 0.2]]}, {"meal": "ערב", "items": [["בקר טחון 5% (150 ג' נא)", 210, 31, 0, 9], ["אורז מבושל, כוס", 230, 4.5, 50, 0.5], ["סלט ירקות גדול", 50, 2, 10, 0.3], ["כף טחינה גולמית", 90, 2.6, 3, 8], ["2 תמרים מג'הול", 130, 1, 35, 0]]}, {"meal": "לפני שינה", "items": [["חצי גביע קוטג' 5% (125 ג')", 123, 13.5, 4, 6.5], ["בננה", 105, 1.3, 27, 0.4]]}]];
+/* v1.67: the menu can be edited. The user's menu lives in 'week-menu' (same shape as WEEK_MENU, item = [name, kcal,
+   protein, carbs, fat, qty?]); until he edits, WEEK_MENU is used. Edits are per weekday and kept for the next weeks.
+   qty is a multiplier the − / + buttons move in ¼ steps; the values are always stored already scaled. */
+let weekMenu = null, menuEditing = false, menuEntries = [];
+const MENU_DAY_NAMES = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
+
+async function loadWeekMenu(){
+  if (weekMenu) return weekMenu;
+  try {
+    const res = await window.storage.get('week-menu', false);
+    const v = res && res.value ? JSON.parse(res.value) : null;
+    if (Array.isArray(v) && v.length === 7) weekMenu = v;
+  } catch (e) {}
+  if (!weekMenu) weekMenu = JSON.parse(JSON.stringify(WEEK_MENU));
+  return weekMenu;
+}
+
+async function saveWeekMenu(){
+  try { await window.storage.set('week-menu', JSON.stringify(weekMenu), false); } catch (e) {}
+}
+
+const menuItemName = (it) => it[5] && it[5] !== 1 ? `${it[0]} ×${fmtQty(it[5])}` : it[0];
+
 async function renderTodayMenu(entries){
+  if (entries) menuEntries = entries;
+  entries = menuEntries;
   const box = document.getElementById('nutMenu');
   const dow = nutritionDate.getDay();
-  const day = WEEK_MENU[dow];
+  const day = (await loadWeekMenu())[dow];
   if (!day){ box.hidden = true; return; }
   box.hidden = false;
-  const names = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
   const logged = (i) => entries.some(e => e.menu === dow + '|' + i);
   const sum = (m, k) => m.items.reduce((t, it) => t + it[k], 0);
   const done = day.filter((m, i) => logged(i)).length;
-  const rows = day.map((m, i) => {
-    const cal = Math.round(sum(m, 1) / 10) * 10, pro = Math.round(sum(m, 2));
-    const btn = logged(i)
-      ? `<button type="button" class="nut-menu-btn done" data-unmenu="${i}">${ic('check')} נרשם<small>ביטול</small></button>`
-      : `<button type="button" class="nut-menu-btn" data-menu="${i}">רשום</button>`;
-    return `<div class="nut-menu-row"><div class="nut-menu-txt"><b>${esc(m.meal)} · <span class="nw"><bdi>${pro}</bdi> ג׳ חלבון</span> · <span class="nw"><bdi>${cal}</bdi> קל׳</span></b>
-      <em>${m.items.map(it => esc(it[0])).join(' · ')}</em></div>${btn}</div>`;
-  }).join('');
   const total = (k) => day.reduce((t, m) => t + sum(m, k), 0);
-  const wasOpen = box.dataset.ready ? box.open : done < day.length;
-  box.innerHTML = `<summary>🍽️ תפריט ליום ${names[dow]}<span>נרשמו ${done} מתוך ${day.length} · <bdi>${Math.round(total(2))}</bdi> ג׳ חלבון · <bdi>${(Math.round(total(1) / 10) * 10).toLocaleString('he-IL')}</bdi> קל׳</span></summary>${rows}`;
+  const head = `<summary>🍽️ תפריט ליום ${MENU_DAY_NAMES[dow]}<span>${menuEditing ? 'עריכה' : `נרשמו ${done} מתוך ${day.length}`} · <bdi>${Math.round(total(2))}</bdi> ג׳ חלבון · <bdi>${(Math.round(total(1) / 10) * 10).toLocaleString('he-IL')}</bdi> קל׳</span></summary>`;
+  let body;
+  if (menuEditing){
+    body = `<div class="nm-note">השינויים נשמרים לכל יום ${MENU_DAY_NAMES[dow]} מעכשיו.</div>` + day.map((m, mi) => `
+      <div class="nm-meal"><b>${esc(m.meal)} · <span class="nw"><bdi>${Math.round(sum(m, 2))}</bdi> ג׳ חלבון</span> · <span class="nw"><bdi>${Math.round(sum(m, 1) / 10) * 10}</bdi> קל׳</span></b>
+        ${m.items.map((it, ii) => `<div class="nm-item"><div class="nm-name"><bdi>${esc(it[0])}</bdi><em><bdi>${round1(it[2])}</bdi> ג׳ חלבון · <bdi>${Math.round(it[1])}</bdi> קל׳</em></div>
+          <div class="nm-ctl"><button type="button" data-mq="${mi}|${ii}|-1" aria-label="פחות">−</button><span>${fmtQty(it[5] || 1)}</span><button type="button" data-mq="${mi}|${ii}|1" aria-label="עוד">+</button><button type="button" class="nm-del" data-mdel="${mi}|${ii}" aria-label="הסר">${ic('trash')}</button></div></div>`).join('')}
+        <div class="nm-add"><input type="text" data-madd="${mi}" placeholder="+ הוסף מרכיב · חפש מאכל" autocomplete="off"><div class="nm-sug" data-msug="${mi}"></div></div>
+      </div>`).join('') + `<div class="nm-foot"><button type="button" class="save-btn" data-mdone>סיום עריכה</button><button type="button" class="reset-btn" data-mreset>החזר למקור</button></div>`;
+  } else {
+    body = day.map((m, i) => {
+      const cal = Math.round(sum(m, 1) / 10) * 10, pro = Math.round(sum(m, 2));
+      const btn = logged(i)
+        ? `<button type="button" class="nut-menu-btn done" data-unmenu="${i}">${ic('check')} נרשם<small>ביטול</small></button>`
+        : `<button type="button" class="nut-menu-btn" data-menu="${i}">רשום</button>`;
+      return `<div class="nut-menu-row"><div class="nut-menu-txt"><b>${esc(m.meal)} · <span class="nw"><bdi>${pro}</bdi> ג׳ חלבון</span> · <span class="nw"><bdi>${cal}</bdi> קל׳</span></b>
+        <em>${m.items.map(it => esc(menuItemName(it))).join(' · ') || 'אין פריטים'}</em></div>${m.items.length ? btn : ''}</div>`;
+    }).join('') + `<button type="button" class="nut-link nm-edit-btn" data-medit>${ic('pencil')} ערוך את התפריט של יום ${MENU_DAY_NAMES[dow]}</button>`;
+  }
+  const wasOpen = menuEditing || (box.dataset.ready ? box.open : done < day.length);
+  box.innerHTML = head + body;
   box.open = wasOpen; box.dataset.ready = '1';
+
   box.querySelectorAll('[data-menu]').forEach(b => b.addEventListener('click', () => logMenuMeal(dow, Number(b.getAttribute('data-menu')))));
   box.querySelectorAll('[data-unmenu]').forEach(b => b.addEventListener('click', () => {
     const i = Number(b.getAttribute('data-unmenu'));
     showConfirm(`לבטל את הרישום של ${day[i].meal}?`, 'הפריטים של הארוחה יימחקו מהיומן של היום הזה.', () => unlogMenuMeal(dow, i), 'בטל רישום');
+  }));
+  const edit = box.querySelector('[data-medit]');
+  if (edit) edit.addEventListener('click', () => { menuEditing = true; renderTodayMenu(); });
+  if (!menuEditing) return;
+  box.querySelector('[data-mdone]').addEventListener('click', () => { menuEditing = false; renderTodayMenu(); });
+  box.querySelector('[data-mreset]').addEventListener('click', () => {
+    showConfirm(`להחזיר את יום ${MENU_DAY_NAMES[dow]} לתפריט המקורי?`, 'השינויים שעשית בתפריט של היום הזה יימחקו. מה שכבר נרשם ביומן נשאר.', async () => {
+      weekMenu[dow] = JSON.parse(JSON.stringify(WEEK_MENU[dow]));
+      await saveWeekMenu(); renderTodayMenu();
+    }, 'החזר');
+  });
+  box.querySelectorAll('[data-mq]').forEach(b => b.addEventListener('click', async () => {
+    const [mi, ii, d] = b.getAttribute('data-mq').split('|').map(Number);
+    const it = day[mi].items[ii], q0 = it[5] || 1;
+    const q = Math.min(10, Math.max(0.25, Math.round((q0 + 0.25 * d) * 4) / 4));
+    if (q === q0) return;
+    for (let k = 1; k <= 4; k++) it[k] = round1(it[k] * q / q0);
+    if (q === 1) it.length = 5; else it[5] = q;
+    await saveWeekMenu(); renderTodayMenu();
+  }));
+  box.querySelectorAll('[data-mdel]').forEach(b => b.addEventListener('click', async () => {
+    const [mi, ii] = b.getAttribute('data-mdel').split('|').map(Number);
+    day[mi].items.splice(ii, 1);
+    await saveWeekMenu(); renderTodayMenu();
+  }));
+  box.querySelectorAll('[data-madd]').forEach(inp => inp.addEventListener('input', () => {
+    const mi = Number(inp.getAttribute('data-madd'));
+    const sug = box.querySelector(`[data-msug="${mi}"]`);
+    const hits = searchFoods(inp.value);
+    sug.innerHTML = hits.map((f, i) => `<button type="button" class="nut-suggest-item" data-i="${i}">
+        <span class="nut-suggest-name">${f.mine ? '⭐ ' : ''}${esc(f.name)}</span>
+        <span class="nut-suggest-meta">${esc(f.unit)} · ${round1(f.protein)} ג' חלבון · ${Math.round(f.calories)} קל׳</span></button>`).join('')
+      || (inp.value.trim().length >= 2 ? '<div class="nm-none">לא נמצא. אפשר להוסיף מאכל חדש דרך "מה אכלת?", ואז הוא יופיע כאן.</div>' : '');
+    sug.querySelectorAll('[data-i]').forEach(btn => {
+      btn.addEventListener('pointerdown', ev => ev.preventDefault());
+      btn.addEventListener('click', async () => {
+        const f = hits[Number(btn.getAttribute('data-i'))];
+        const unit = f.unit && f.unit !== 'מנה' ? ` (${f.unit})` : '';
+        day[mi].items.push([f.name + unit, round1(f.calories), round1(f.protein), round1(f.carbs || 0), round1(f.fat || 0)]);
+        await saveWeekMenu();
+        showToast(`נוסף ל${day[mi].meal}: ${f.name}`);
+        renderTodayMenu();
+      });
+    });
   }));
 }
 
@@ -4878,17 +4976,18 @@ async function unlogMenuMeal(dow, i){
   data.entries = (data.entries || []).filter(e => e.menu !== dow + '|' + i);
   if (data.entries.length === before) return;
   await saveNutritionDay(nutritionDate, data);
-  showToast(`הרישום של ${WEEK_MENU[dow][i].meal} בוטל`);
+  showToast(`הרישום של ${(await loadWeekMenu())[dow][i].meal} בוטל`);
   renderNutritionPanel();
 }
 
 async function logMenuMeal(dow, i){
-  const m = WEEK_MENU[dow][i];
+  const m = (await loadWeekMenu())[dow][i];
+  if (!m.items.length) return;
   const time = new Date().toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' });
   const data = await loadNutritionDay(nutritionDate);
   data.entries = data.entries || [];
   if (data.entries.some(e => e.menu === dow + '|' + i)) return;
-  m.items.forEach(([name, calories, protein, carbs, fat]) => data.entries.push({ name, calories, protein, carbs, fat, time, menu: dow + '|' + i }));
+  m.items.forEach(it => data.entries.push({ name: menuItemName(it), calories: it[1], protein: it[2], carbs: it[3], fat: it[4], time, menu: dow + '|' + i }));
   await saveNutritionDay(nutritionDate, data);
   showToast(`${m.meal} נרשם · ${Math.round(m.items.reduce((t, it) => t + it[2], 0))} ג׳ חלבון`);
   renderNutritionPanel();
@@ -6795,7 +6894,7 @@ document.getElementById('coachOverlay').addEventListener('click', (e) => {
 });
 
 // bump on every change that reaches the phone, and add a line to "History of changes" in CLAUDE.md
-const APP_VERSION = '1.66';
+const APP_VERSION = '1.67';
 const APP_VERSION_DATE = '18.11.2026';
 document.getElementById('appVersion').textContent = `גרסה ${APP_VERSION} · ${APP_VERSION_DATE}`;
 
