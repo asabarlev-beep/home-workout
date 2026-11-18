@@ -1301,6 +1301,20 @@
   .nm-none{ color:var(--muted); font-size:12px; padding:6px 2px; }
   .nm-foot{ display:flex; gap:8px; margin-top:10px; }
   .nm-foot button{ flex:1; margin:0; }
+  .shop-sub{ color:var(--muted); font-size:13px; margin-bottom:10px; line-height:1.5; }
+  .shop-add{ display:flex; gap:8px; margin-bottom:12px; }
+  .shop-add input{ flex:1; min-width:0; background:var(--bg); border:1px solid #3a4351; border-radius:12px; color:var(--text); padding:10px 12px; font-size:15px; font-family:inherit; }
+  .shop-add button{ flex:none; margin:0; }
+  .shop-cat{ font-size:12.5px; color:var(--muted); font-weight:700; margin:14px 0 4px; }
+  .shop-row{ display:flex; align-items:center; gap:10px; padding:9px 0; border-bottom:1px solid var(--line); cursor:pointer; }
+  .shop-row input{ width:22px; height:22px; accent-color:var(--accent); flex:none; }
+  .shop-row span{ flex:1; min-width:0; font-size:15px; line-height:1.35; }
+  .shop-row.done span{ text-decoration:line-through; color:var(--muted); }
+  .shop-row em{ font-style:normal; color:var(--muted); font-size:12px; display:block; }
+  .shop-row .nut-entry-del{ flex:none; }
+  .shop-foot{ display:flex; gap:8px; margin-top:16px; }
+  .shop-foot button{ flex:1; margin:0; }
+  .nm-links{ display:flex; flex-wrap:wrap; gap:6px 16px; margin-top:8px; }
   .nm-edit-btn{ display:inline-flex; align-items:center; gap:6px; margin-top:8px; font-size:13px; }
   .nut-menu-btn.done small{ color:var(--muted); font-weight:600; font-size:11px; }
   .cal-coach{ margin:0 18px 28px; background:var(--bg); border-radius:16px; padding:14px; }
@@ -1629,6 +1643,7 @@
       <button class="reset-btn" id="openCoachBtn" style="text-align:right;"><i data-ic="trophy"></i> דוח מאמן — שדרוגים</button>
       <button class="reset-btn" id="openBwBtn" style="text-align:right;"><i data-ic="scale"></i> מעקב משקל גוף</button>
       <button class="reset-btn" id="openNutBtn" style="text-align:right;"><i data-ic="apple"></i> יומן תזונה</button>
+      <button class="reset-btn" id="openShopBtn" style="text-align:right;"><i data-ic="cart"></i> רשימת קניות לשבוע</button>
       <button class="reset-btn" id="openBreakBtn" style="text-align:right;"><i data-ic="pause"></i> הפסקה מאימונים — מחלה, טיפול, חופשה</button>
       <button class="reset-btn" id="openBackupBtn" style="text-align:right;"><i data-ic="swap"></i> גיבוי וייבוא נתונים</button>
       <div id="appVersion" style="color:var(--muted);font-size:12px;text-align:center;margin-top:6px;"></div>
@@ -1663,6 +1678,16 @@
       <button class="history-close" id="breakCloseBtn" aria-label="סגור"><i data-ic="x"></i></button>
     </div>
     <div id="breakBody" style="padding:16px 18px 30px"></div>
+  </div>
+</div>
+
+<div class="history-overlay" id="shopOverlay">
+  <div class="history-panel">
+    <div class="history-head">
+      <h2>רשימת קניות</h2>
+      <button class="history-close" id="shopCloseBtn" aria-label="סגור"><i data-ic="x"></i></button>
+    </div>
+    <div id="shopBody" style="padding:12px 18px 30px"></div>
   </div>
 </div>
 
@@ -1831,6 +1856,7 @@ const ICONS = {
   reset: '<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/>',
   video: '<path d="m16 13 5.22 3.48a.5.5 0 0 0 .78-.42V7.87a.5.5 0 0 0-.75-.43L16 10.5"/><rect x="2" y="6" width="14" height="12" rx="2"/>',
   note: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M16 13H8"/><path d="M16 17H8"/>',
+  cart: '<circle cx="8" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"/>',
   trophy: '<path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/>',
   alert: '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
 };
@@ -4912,7 +4938,7 @@ async function renderTodayMenu(entries){
         : `<button type="button" class="nut-menu-btn" data-menu="${i}">רשום</button>`;
       return `<div class="nut-menu-row"><div class="nut-menu-txt"><b>${esc(m.meal)} · <span class="nw"><bdi>${pro}</bdi> ג׳ חלבון</span> · <span class="nw"><bdi>${cal}</bdi> קל׳</span></b>
         <em>${m.items.map(it => esc(menuItemName(it))).join(' · ') || 'אין פריטים'}</em></div>${m.items.length ? btn : ''}</div>`;
-    }).join('') + `<button type="button" class="nut-link nm-edit-btn" data-medit>${ic('pencil')} ערוך את התפריט של יום ${MENU_DAY_NAMES[dow]}</button>`;
+    }).join('') + `<div class="nm-links"><button type="button" class="nut-link nm-edit-btn" data-medit>${ic('pencil')} ערוך את התפריט של יום ${MENU_DAY_NAMES[dow]}</button><button type="button" class="nut-link nm-edit-btn" data-mshop>${ic('cart')} רשימת קניות לשבוע</button></div>`;
   }
   const wasOpen = menuEditing || (box.dataset.ready ? box.open : done < day.length);
   box.innerHTML = head + body;
@@ -4925,6 +4951,8 @@ async function renderTodayMenu(entries){
   }));
   const edit = box.querySelector('[data-medit]');
   if (edit) edit.addEventListener('click', () => { menuEditing = true; renderTodayMenu(); });
+  const shopBtn = box.querySelector('[data-mshop]');
+  if (shopBtn) shopBtn.addEventListener('click', openShop);
   if (!menuEditing) return;
   box.querySelector('[data-mdone]').addEventListener('click', () => { menuEditing = false; renderTodayMenu(); });
   box.querySelector('[data-mreset]').addEventListener('click', () => {
@@ -4992,6 +5020,98 @@ async function logMenuMeal(dow, i){
   showToast(`${m.meal} נרשם · ${Math.round(m.items.reduce((t, it) => t + it[2], 0))} ג׳ חלבון`);
   renderNutritionPanel();
 }
+
+/* v1.68: weekly shopping list from the menu (the user's 'week-menu', all 7 days). Same item names are added up; a name
+   that starts with a number ("4 פרוסות לחם מלא") is multiplied out ("28 פרוסות לחם מלא"), others get "×N". 'shop-list' =
+   {week: ISO of this week's Sunday, checked: [line keys], extra: [names the user typed]}; ticks clear when a new week
+   starts, extra lines stay until deleted. */
+const SHOP_CATS = [
+  ['חלבון', /עוף|פרגית|בקר|סלמון|דג|טונה|ביצ|פסטרמ|טופו|קציצ|הודו|נקניק|שקשוק|שניצל/],
+  ['מוצרי חלב', /קוטג|גבינ|מעדן|יוגורט|חלב|ריקוטה|לבנה/],
+  ['לחם ודגנים', /לחם|פיתה|אורז|פסטה|קינואה|בורגול|שיבולת|גרנולה|פריכי|חלה|לאפה|אטריות|קוסקוס/],
+  ['ירקות ופירות', /סלט|ירקות|עגבני|מלפפון|חסה|בטטה|תפוח|בננה|תמר|אבוקדו|רוטב|כרוב|פלפל|פרי|קיווי|רימון|ענב|תפוז/],
+  ['שומנים ותבלינים', /טחינה|שמן|מיונז|חומוס|שקדים|אגוז|דבש|חרדל|קטשופ|זית/],
+];
+const shopCat = (name) => (SHOP_CATS.find(([, re]) => re.test(name)) || ['אחר'])[0];
+
+async function loadShop(){
+  let st = null;
+  try { const r = await window.storage.get('shop-list', false); st = r && r.value ? JSON.parse(r.value) : null; } catch (e) {}
+  const sun = new Date(); sun.setHours(0, 0, 0, 0); sun.setDate(sun.getDate() - sun.getDay());
+  const week = isoDate(sun);
+  st = st && typeof st === 'object' ? st : {};
+  if (st.week !== week){ st.week = week; st.checked = []; }
+  st.checked = st.checked || []; st.extra = st.extra || [];
+  return st;
+}
+async function saveShop(st){ try { await window.storage.set('shop-list', JSON.stringify(st), false); } catch (e) {} }
+
+async function shopLines(){
+  const menu = await loadWeekMenu();
+  const tally = new Map();
+  menu.forEach(day => day.forEach(m => m.items.forEach(it => {
+    const q = it[5] || 1;
+    const mm = String(it[0]).match(/^(\d+(?:\.\d+)?)\s+(.+)$/);
+    const key = mm ? mm[2] : String(it[0]);
+    const t = tally.get(key) || { name: key, perUnit: !!mm, n: 0, times: 0 };
+    t.n += (mm ? Number(mm[1]) : 1) * q; t.times += 1;
+    tally.set(key, t);
+  })));
+  return [...tally.values()].map(t => ({
+    key: 'm:' + t.name,
+    label: t.perUnit ? `${fmtQty(t.n)} ${t.name}` : t.name + (t.n !== 1 ? ` ×${fmtQty(t.n)}` : ''),
+    note: t.times > 1 ? `${t.times} פעמים בתפריט` : '',
+    cat: shopCat(t.name),
+  }));
+}
+
+async function renderShop(){
+  const body = document.getElementById('shopBody');
+  const st = await loadShop();
+  const lines = [...await shopLines(), ...st.extra.map(n => ({ key: 'x:' + n, label: n, note: 'הוספת ידנית', cat: 'הוספתי', extra: n }))];
+  const done = lines.filter(l => st.checked.includes(l.key)).length;
+  const order = ['הוספתי', 'חלבון', 'מוצרי חלב', 'לחם ודגנים', 'ירקות ופירות', 'שומנים ותבלינים', 'אחר'];
+  const row = (l) => `<label class="shop-row${st.checked.includes(l.key) ? ' done' : ''}"><input type="checkbox" data-shop="${esc(l.key)}"${st.checked.includes(l.key) ? ' checked' : ''}>
+      <span><bdi>${esc(l.label)}</bdi>${l.note ? `<em>${esc(l.note)}</em>` : ''}</span>
+      ${l.extra ? `<button type="button" class="nut-entry-del" data-shopdel="${esc(l.extra)}" aria-label="הסר">${ic('trash')}</button>` : ''}</label>`;
+  body.innerHTML = `<div class="shop-sub">לפי התפריט של כל השבוע (ראשון עד שבת), כולל השינויים שעשית בו. סומנו <bdi>${done}</bdi> מתוך <bdi>${lines.length}</bdi>. הסימונים מתאפסים בכל יום ראשון.</div>
+    <div class="shop-add"><input type="text" id="shopAddInput" placeholder="להוסיף עוד משהו לרשימה" autocomplete="off"><button type="button" class="save-btn" id="shopAddBtn">הוסף</button></div>
+    ${order.map(c => { const ls = lines.filter(l => l.cat === c); return ls.length ? `<div class="shop-cat">${c}</div>` + ls.map(row).join('') : ''; }).join('')}
+    <div class="shop-foot"><button type="button" class="reset-btn" id="shopClearBtn">נקה סימונים</button></div>`;
+  body.querySelectorAll('[data-shop]').forEach(cb => cb.addEventListener('change', async () => {
+    const k = cb.getAttribute('data-shop'), s2 = await loadShop();
+    s2.checked = cb.checked ? [...new Set([...s2.checked, k])] : s2.checked.filter(x => x !== k);
+    await saveShop(s2); renderShop();
+  }));
+  body.querySelectorAll('[data-shopdel]').forEach(b => b.addEventListener('click', async (ev) => {
+    ev.preventDefault();
+    const n = b.getAttribute('data-shopdel'), s2 = await loadShop();
+    s2.extra = s2.extra.filter(x => x !== n); s2.checked = s2.checked.filter(x => x !== 'x:' + n);
+    await saveShop(s2); renderShop();
+  }));
+  const add = async () => {
+    const inp = document.getElementById('shopAddInput'), n = inp.value.trim().replace(/[<>"&]/g, '');
+    if (!n) return;
+    const s2 = await loadShop();
+    if (!s2.extra.includes(n)) s2.extra.unshift(n);
+    await saveShop(s2); renderShop();
+  };
+  document.getElementById('shopAddBtn').addEventListener('click', add);
+  document.getElementById('shopAddInput').addEventListener('keydown', e => { if (e.key === 'Enter') add(); });
+  document.getElementById('shopClearBtn').addEventListener('click', async () => { const s2 = await loadShop(); s2.checked = []; await saveShop(s2); renderShop(); });
+}
+
+function openShop(){
+  closeAllSheets();
+  document.getElementById('shopBody').innerHTML = '<div class="trend-note">מכין את הרשימה…</div>';
+  document.getElementById('shopOverlay').classList.add('open');
+  renderShop();
+}
+document.getElementById('openShopBtn').addEventListener('click', openShop);
+document.getElementById('shopCloseBtn').addEventListener('click', () => document.getElementById('shopOverlay').classList.remove('open'));
+document.getElementById('shopOverlay').addEventListener('click', (e) => {
+  if (e.target.id === 'shopOverlay') document.getElementById('shopOverlay').classList.remove('open');
+});
 
 /* saved meals: a named group of foods logged together in one tap */
 let mealEditMode = false;
@@ -6894,7 +7014,7 @@ document.getElementById('coachOverlay').addEventListener('click', (e) => {
 });
 
 // bump on every change that reaches the phone, and add a line to "History of changes" in CLAUDE.md
-const APP_VERSION = '1.67';
+const APP_VERSION = '1.68';
 const APP_VERSION_DATE = '18.11.2026';
 document.getElementById('appVersion').textContent = `גרסה ${APP_VERSION} · ${APP_VERSION_DATE}`;
 
