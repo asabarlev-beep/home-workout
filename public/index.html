@@ -1427,6 +1427,11 @@
   .wk-prog span{ color:var(--muted); font-size:12.5px; }
   .history-day-tabs{ flex-wrap:wrap; }
   .history-day-tabs .history-day-tab{ flex:1 0 auto; padding-inline:8px; }
+  .band-row{ display:flex; flex-wrap:wrap; align-items:center; gap:6px; margin:0 0 10px; font-size:12.5px; color:var(--muted); }
+  .band-chip{ border:1px solid var(--line, #333); background:transparent; color:inherit; border-radius:999px; padding:4px 10px; font:inherit; cursor:pointer; }
+  .band-chip.on{ border-color:#d7ff3f; color:#d7ff3f; font-weight:600; }
+  .band-hint{ flex-basis:100%; line-height:1.45; }
+  .band-hint.up{ color:#d7ff3f; }
   .stall-note{ border:1px solid #ffb347; color:#ffb347; border-radius:10px; padding:7px 10px; font-size:12.5px; line-height:1.45; margin:0 0 10px; }
   .stall-note b{ font-weight:700; }
   .stall-note[hidden]{ display:none; }
@@ -2392,11 +2397,14 @@ async function renderExercises(){
       const lastSet = lastForEx && lastForEx.sets[i - 1] ? lastForEx.sets[i - 1] : null;
       const lastWeight = lastSet && lastSet.weight !== null && lastSet.weight !== undefined ? kgToDisplayUnit(lastSet.weight) : '';
       // when it is time to go up, hint the new weight on working sets instead of last time's
-      const weightPlaceholder = nextUp && (nextUp.kind === 'up' || nextUp.kind === 'down') && lastSet && !lastSet.warmup ? kgToDisplayUnit(nextUp.weight) : lastWeight;
+      const bridgeHeavy = nextUp && nextUp.kind === 'bridge' && i <= nextUp.count;
+      const planned = nextUp && nextUp.kind === 'bridge' ? (bridgeHeavy ? nextUp.weight : nextUp.lower) : nextUp && nextUp.weight;
+      const weightPlaceholder = nextUp && ['up', 'down', 'bridge'].includes(nextUp.kind) && lastSet && !lastSet.warmup ? kgToDisplayUnit(planned) : lastWeight;
+      const repsPlaceholder = bridgeHeavy && lastSet && !lastSet.warmup && Number(lastSet.weight) !== Number(nextUp.weight) ? nextUp.lo : (lastSet ? (lastSet.reps ?? '') : '');
       rows += `
         <tr>
           <td><button class="set-idx-btn" data-ex="${ex.id}" data-set="${i}" title="לחיצה = סימון כחימום">${i}</button></td>
-          <td><input type="number" inputmode="numeric" min="0" placeholder="${lastSet ? (lastSet.reps ?? '') : ''}" data-ex="${ex.id}" data-set="${i}" data-field="reps"></td>
+          <td><input type="number" inputmode="numeric" min="0" placeholder="${repsPlaceholder}" data-ex="${ex.id}" data-set="${i}" data-field="reps"></td>
           <td><input type="number" inputmode="decimal" min="0" step="0.5" placeholder="${weightPlaceholder}" data-ex="${ex.id}" data-set="${i}" data-field="weight"></td>
           <td><button class="set-save-btn" data-ex="${ex.id}" data-set="${i}" data-exname="${ex.name}" title="שמור סט" aria-label="שמור סט">${ic('check')}</button></td>
         </tr>`;
@@ -2438,6 +2446,7 @@ async function renderExercises(){
       <div class="last-note">${lastNoteChips(lastForEx, pr, ex)}</div>
       ${prevNote ? `<div class="prev-note">📝 <b>מהפעם הקודמת:</b> ${esc(prevNote)}</div>` : ''}
       <div class="stall-note" data-stall="${ex.id}" hidden></div>
+      ${isBandExercise(ex) ? `<div class="band-row" data-band="${ex.id}"></div>` : ''}
       <table class="sets">
         <thead>
           <tr><th style="width:34px;">סט</th><th>חזרות</th><th>משקל (${unitLabel()})</th><th style="width:44px;"></th></tr>
@@ -3279,6 +3288,7 @@ function showWorkoutSummary(day, session, previous, newPRs, secs){
     }
     const next = nextWeightSuggestion(ex, rec);
     if (next && next.kind === 'up') nextUp.push(`<div class="sum-row"><span>${ex.name}</span><b>${formatWeight(next.weight)}</b></div>`);
+    if (next && next.kind === 'bridge') nextUp.push(`<div class="sum-row"><span>${ex.name}</span><b>${bridgeText(next)}</b></div>`);
     if (next && next.kind === 'down') nextDown.push(`<div class="sum-row"><span>${ex.name}</span><b style="color:#ffb347">${formatWeight(next.weight)}</b></div>`);
   });
   document.getElementById('summaryBody').innerHTML = `
@@ -3386,6 +3396,14 @@ async function refreshLiveHintsInner(exId){
   if (todaySets.some(x => x && !x.warmup)){
     const pending = [...card.querySelectorAll('.set-save-btn')].filter(b => !b.classList.contains('saved'));
     live = pending.length ? { nextSet: nextSetSuggestion(ex, todaySets) } : { nextTime: nextWeightSuggestion(ex, { sets: todaySets.filter(x => x && !x.warmup) }) };
+    // a bridge day: the heavy pair for the planned sets, then back to the old pair (v1.69)
+    const plan = live.nextSet ? nextFromLast(ex, prev) : null;
+    if (plan && plan.kind === 'bridge'){
+      const heavy = todaySets.filter(x => x && !x.warmup && Number(x.weight) >= plan.weight).length;
+      live.nextSet = heavy < plan.count
+        ? { kind: 'up', weight: plan.weight, why: `גישור: סט ${heavy + 1} מתוך ${plan.count} במשקל החדש` }
+        : { kind: 'keep', weight: plan.lower, why: `גישור: שאר הסטים ב-${formatWeight(plan.lower)}` };
+    }
     const n = live.nextSet;
     if (n){
       // the grey reps follow too when today's weight is not last time's: last time's 11 and 10 at 5 kg
@@ -3395,9 +3413,10 @@ async function refreshLiveHintsInner(exId){
         const i = Number(b.getAttribute('data-set'));
         const w = card.querySelector(`input[data-set="${i}"][data-field="weight"]`);
         const r = card.querySelector(`input[data-set="${i}"][data-field="reps"]`);
-        if (w && !w.value) w.placeholder = kgToDisplayUnit(n.weight);
+        const wi = plan && plan.kind === 'bridge' ? (i <= plan.count ? plan.weight : plan.lower) : n.weight;
+        if (w && !w.value) w.placeholder = kgToDisplayUnit(wi);
         const prevSet = prev && prev.sets ? prev.sets[i - 1] : null;
-        if (r && !r.value && lastWork && lastWork.reps != null && !(prevSet && Number(prevSet.weight) === Number(n.weight))) r.placeholder = lastWork.reps;
+        if (r && !r.value && lastWork && lastWork.reps != null && !(prevSet && Number(prevSet.weight) === Number(wi))) r.placeholder = Number(lastWork.weight) === Number(wi) || !prevSet ? lastWork.reps : prevSet.reps;
       });
     }
   }
@@ -3429,13 +3448,19 @@ function lastNoteChips(rec, pr, ex, live){
   } else if (live && live.nextTime){
     const n = live.nextTime;
     const cls = n.kind === 'up' ? ' up' : n.kind === 'down' ? ' down' : '';
-    html += `<span class="chip next${cls}">✓ בפעם הבאה: ${formatWeight(n.weight)}${n.kind === 'up' ? ' — הגעת לראש הטווח' : n.kind === 'down' ? ' — היה כבד מדי' : ''}</span>`;
+    if (n.kind === 'bridge') html += `<span class="chip next up">✓ בפעם הבאה: ${bridgeText(n)}</span>`;
+    else if (n.kind === 'reps') html += `<span class="chip next">✓ בפעם הבאה: ${formatWeight(n.weight)} · ${n.reps} חזרות בכל סט, ואז ${formatWeight(n.up)}</span>`;
+    else html += `<span class="chip next${cls}">✓ בפעם הבאה: ${formatWeight(n.weight)}${n.kind === 'up' ? ' — הגעת לראש הטווח' : n.kind === 'down' ? ' — היה כבד מדי' : ''}</span>`;
   }
   if (next){
     if (next.comeback){
       html += `<span class="chip next down">↩️ חזרה מהפסקה: ${formatWeight(next.weight)} · כ-90% ממה שהרמת לפני</span>`;
     } else if (next.kind === 'down'){
       html += `<span class="chip next down">${ic('down')} הבא: ${formatWeight(next.weight)} · כבד מדי בפעם הקודמת</span>`;
+    } else if (next.kind === 'bridge'){
+      html += `<span class="chip next up">${ic('up')} הבא: ${bridgeText(next)}</span>`;
+    } else if (next.kind === 'reps'){
+      html += `<span class="chip next">הבא: ${formatWeight(next.weight)} · עד ${next.reps} חזרות בכל סט, ואז ${formatWeight(next.up)}</span>`;
     } else {
       const hint = next.kind === 'up' ? '' : next.kind === 'keep' ? ' · נסה להוסיף חזרה' : ` · קודם להגיע ל-${next.lo} חזרות`;
       html += `<span class="chip next${next.kind === 'up' ? ' up' : ''}">${next.kind === 'up' ? ic('up') + ' ' : ''}הבא: ${formatWeight(next.weight)}${hint}</span>`;
@@ -3486,6 +3511,7 @@ document.addEventListener('click', (e) => {
    Every working set at the top weight reached the top of the target rep range -> go up one step.
    Dumbbells jump to the next pair that exists in the gym; bar, machine and cable go up 2.5 kg. */
 const DUMBBELL_KG = [7, 8, 9, 10, 12, 15, 17, 20, 22.5, 25, 27, 30];
+const BRIDGE_JUMP = 1.15; // a dumbbell step bigger than 15% is bridged (v1.69)
 const isDumbbellExercise = (ex) => /משקול|גובלט|פטיש|קטלבל|dumbbell/i.test(ex.name || '');
 
 function repRange(target){
@@ -3494,6 +3520,65 @@ function repRange(target){
 }
 
 const isBodyweightExercise = (ex) => /מתח|מקבילים|שכיבות|pull ?up|chin|dip/i.test((ex && ex.name) || '');
+
+/* v1.69: assisted pull-ups and dips. Without a band the log held only reps, so going to a lighter band looked like
+   a step back. The band is logged per movement in 'band-log' {canonId: [[isoDate, assistKg], ...]} (sorted; one
+   entry per change) — a session uses the band of the last entry on or before its date, sessions before the first
+   entry the first band. exerciseTimeline gives each set of such a movement a `load` = body weight + added weight −
+   band assist, and sessionScore uses it, so a lighter band at the same reps counts as progress. */
+const BANDS = [[0, 'בלי'], [4, 'דקה'], [11, '15–35'], [18, '30–50'], [29, '50–80']]; // assist in kg ≈ middle of the band's lb range
+const isBandExercise = (ex) => /מתח|מקבילים|pull ?up|chin|dip/i.test((ex && ex.name) || '');
+let bandLog = null;
+async function loadBandLog(){
+  if (bandLog) return bandLog;
+  try {
+    const res = await window.storage.get('band-log', false);
+    const v = res && res.value ? JSON.parse(res.value) : null;
+    bandLog = v && typeof v === 'object' && !Array.isArray(v) ? v : {};
+  } catch (e) { bandLog = {}; }
+  return bandLog;
+}
+function assistOn(list, iso){
+  if (!list || !list.length) return null;
+  let a = null;
+  for (const [d, kg] of list) if (d <= iso) a = kg;
+  return a ?? list[0][1];
+}
+async function setBand(canon, kg){
+  const log = await loadBandLog();
+  const today = isoDate(new Date());
+  const list = (log[canon] || []).filter(e => e[0] !== today);
+  if (!list.length || list[list.length - 1][1] !== kg) list.push([today, kg]);
+  log[canon] = list;
+  try { await window.storage.set('band-log', JSON.stringify(log), false); } catch (e) {}
+}
+async function latestBodyWeight(){
+  const log = await loadBodyWeightLog();
+  const best = log.filter(e => e && Number(e.weight) > 0).sort((a, b) => parseHeDate(b.date) - parseHeDate(a.date))[0];
+  return best ? Number(best.weight) : 70;
+}
+function bandRowHtml(ex, sessions, list){
+  const today = isoDate(new Date());
+  const cur = list && list.length ? assistOn(list, today) : null;
+  const chips = BANDS.map(([kg, label]) => `<button type="button" class="band-chip${cur === kg ? ' on' : ''}" data-bandkg="${kg}" data-bandex="${ex.id}"><bdi dir="ltr">${label}</bdi></button>`).join('');
+  let hint = cur == null ? '<div class="band-hint">סמן איזו גומייה — כך מעבר לגומייה דקה יותר ייספר כהתקדמות</div>' : '';
+  const range = repRange(ex.target);
+  const last = sessions.filter(s => s.dateStr !== todayStr()).pop();
+  const reps = last ? last.sets.map(x => x.reps).filter(r => r != null) : [];
+  // only while the band is still the one of that session — once he moved down, the old reps say nothing
+  if (cur > 0 && last && last.assist === cur && range && reps.length && reps.every(r => r >= range.hi)){
+    const lighter = [...BANDS].reverse().find(([kg]) => kg < cur);
+    hint = `<div class="band-hint up">💪 הגעת ל-${range.hi} חזרות בכל הסטים — היום ${lighter[0] ? `גומייה <bdi dir="ltr">${lighter[1]}</bdi>` : 'בלי גומייה'}, ולהתחיל מתחתית הטווח</div>`;
+  }
+  return `<span class="band-label">גומייה:</span>${chips}${hint}`;
+}
+document.addEventListener('click', async (e) => {
+  const b = e.target.closest('[data-bandkg]');
+  if (!b) return;
+  e.stopPropagation();
+  await setBand(canonId(b.getAttribute('data-bandex')), Number(b.getAttribute('data-bandkg')));
+  renderStallNotes();
+});
 
 // about 10% lighter, rounded down to a weight that exists: the dumbbell pair below, or a 2.5 kg step
 function lighterWeight(ex, top){
@@ -3505,14 +3590,32 @@ function lighterWeight(ex, top){
   return w > 0 && w < top ? w : null;
 }
 
+// "15 ק״ג בסט הראשון, 12 ק״ג בשאר" — the plan of a bridge suggestion
+const bridgeText = (n) => `${formatWeight(n.weight)} ${n.count === 1 ? 'בסט הראשון' : `ב-${n.count} הסטים הראשונים`}, ${formatWeight(n.lower)} בשאר`;
+const progressing = (n) => !!n && (n.kind === 'up' || n.kind === 'bridge');
+
 function nextWeightSuggestion(ex, rec){
   const range = repRange(ex.target);
   const sets = ((rec && rec.sets) || []).filter(s => s && !s.warmup && s.reps != null && s.weight != null && s.weight > 0);
   if (!range || !sets.length) return null;
   const top = Math.max(...sets.map(s => s.weight));
   const atTop = sets.filter(s => s.weight === top);
+  const dumbbell = isDumbbellExercise(ex);
+  /* v1.69: big dumbbell jumps (10→12, 12→15, 17→20 — no pair in between) are bridged: first get 2 reps past the
+     range, then only the FIRST set at the new pair and the rest at the old one, one more set each time the new
+     sets reach the bottom of the range. A session that mixed two neighbouring pairs is such a bridge. */
+  const lowerW = Math.max(0, ...sets.filter(s => s.weight < top).map(s => s.weight));
+  if (dumbbell && lowerW > 0 && top > lowerW * BRIDGE_JUMP && DUMBBELL_KG.find(w => w > lowerW) === top){
+    const count = atTop.length + (atTop.every(s => s.reps >= range.lo) ? 1 : 0);
+    if (count >= sets.length) return { kind: 'up', weight: top, lo: range.lo };
+    return { kind: 'bridge', weight: top, lower: lowerW, count, lo: range.lo };
+  }
   if (atTop.every(s => s.reps >= range.hi)){
-    const up = isDumbbellExercise(ex) ? (DUMBBELL_KG.find(w => w > top) ?? top + 2.5) : top + 2.5;
+    const up = dumbbell ? (DUMBBELL_KG.find(w => w > top) ?? top + 2.5) : top + 2.5;
+    if (dumbbell && up > top * BRIDGE_JUMP){
+      if (!atTop.every(s => s.reps >= range.hi + 2)) return { kind: 'reps', weight: top, up, reps: range.hi + 2, lo: range.lo };
+      return { kind: 'bridge', weight: up, lower: top, count: 1, lo: range.lo };
+    }
     return { kind: 'up', weight: up, lo: range.lo };
   }
   // too heavy: most sets at the top weight ended 2+ reps under the range (one tired last set is not enough).
@@ -4885,12 +4988,27 @@ async function renderRecentFoods(){
    WEEK_MENU[day of week 0=Sunday][meal] = {meal, items:[[name, kcal, protein, carbs, fat]]}. The nutrition sheet shows
    the menu of the date it is on; "רשום" adds the meal's items as ordinary entries tagged menu:'<dow>|<meal>' (so a
    meal already logged that day shows ✓). Deleting an entry in the list undoes it like any other food. */
-const WEEK_MENU = [[{"meal": "בוקר", "items": [["2 מעדני חלבון", 300, 40, 28, 6], ["40 ג' גרנולה", 180, 4, 26, 7]]}, {"meal": "צהריים (כריך)", "items": [["4 פרוסות לחם מלא", 300, 12, 52, 4], ["טונה במים, קופסה מסוננת", 120, 26, 0, 1], ["כף מיונז לייט", 45, 0, 1, 4.5], ["ירקות לכריך (עגבנייה, מלפפון, חסה)", 25, 1, 5, 0.2]]}, {"meal": "ערב", "items": [["פרגית צלויה (150 ג')", 300, 38, 0, 16], ["אורז מבושל, כוס", 230, 4.5, 50, 0.5], ["סלט ירקות גדול", 50, 2, 10, 0.3], ["כף טחינה גולמית", 90, 2.6, 3, 8], ["2 תמרים מג'הול", 130, 1, 35, 0]]}, {"meal": "לפני שינה", "items": [["חצי גביע קוטג' 5% (125 ג')", 123, 13.5, 4, 6.5], ["תפוח", 80, 0.4, 21, 0.2]]}], [{"meal": "בוקר", "items": [["2 מעדני חלבון", 300, 40, 28, 6], ["40 ג' שיבולת שועל", 150, 5, 26, 3]]}, {"meal": "צהריים (כריך)", "items": [["4 פרוסות לחם מלא", 300, 12, 52, 4], ["חזה עוף צלוי (100 ג')", 165, 31, 0, 3.6], ["כף גדושה חומוס ממרח (30 ג')", 85, 2.5, 4, 6.5], ["ירקות לכריך (עגבנייה, מלפפון, חסה)", 25, 1, 5, 0.2]]}, {"meal": "ערב", "items": [["סלמון אפוי (150 ג')", 310, 33, 0, 19], ["בטטה אפויה (200 ג')", 170, 3, 40, 0.2], ["סלט ירקות גדול", 50, 2, 10, 0.3], ["כף טחינה גולמית", 90, 2.6, 3, 8], ["כפית שמן זית", 40, 0, 0, 4.5], ["2 תמרים מג'הול", 130, 1, 35, 0]]}, {"meal": "לפני שינה", "items": [["חצי גביע קוטג' 5% (125 ג')", 123, 13.5, 4, 6.5]]}], [{"meal": "בוקר", "items": [["2 מעדני חלבון", 300, 40, 28, 6], ["40 ג' גרנולה", 180, 4, 26, 7]]}, {"meal": "צהריים (כריך)", "items": [["4 פרוסות לחם מלא", 300, 12, 52, 4], ["פסטרמה עוף/הודו של גבנץ (80 ג')", 85, 15, 2, 1.5], ["2 פרוסות גבינה צהובה 9%", 105, 11, 0.5, 6.5], ["ירקות לכריך (עגבנייה, מלפפון, חסה)", 25, 1, 5, 0.2]]}, {"meal": "ערב", "items": [["בקר טחון 5% (150 ג' נא)", 210, 31, 0, 9], ["פסטה מבושלת, כוס", 220, 8, 43, 1.3], ["רוטב עגבניות", 60, 2, 10, 1], ["סלט ירקות גדול", 50, 2, 10, 0.3], ["כפית שמן זית", 40, 0, 0, 4.5], ["20 ג' שקדים", 115, 4, 4, 10]]}, {"meal": "לפני שינה", "items": [["חצי גביע קוטג' 5% (125 ג')", 123, 13.5, 4, 6.5], ["בננה", 105, 1.3, 27, 0.4]]}], [{"meal": "בוקר", "items": [["2 מעדני חלבון", 300, 40, 28, 6], ["40 ג' שיבולת שועל", 150, 5, 26, 3]]}, {"meal": "צהריים (כריך)", "items": [["4 פרוסות לחם מלא", 300, 12, 52, 4], ["2 ביצים קשות", 150, 13.0, 1.0, 10], ["גבינה לבנה 5% (100 ג')", 95, 9, 4, 5], ["ירקות לכריך (עגבנייה, מלפפון, חסה)", 25, 1, 5, 0.2]]}, {"meal": "ערב", "items": [["חזה עוף מבושל (150 ג')", 250, 46, 0, 5.5], ["קינואה מבושלת, כוס", 220, 8, 39, 3.5], ["ירקות מבושלים/מוקפצים", 60, 3, 12, 0.5], ["כפית שמן זית", 40, 0, 0, 4.5], ["2 תמרים מג'הול", 130, 1, 35, 0]]}, {"meal": "לפני שינה", "items": [["חצי גביע קוטג' 5% (125 ג')", 123, 13.5, 4, 6.5], ["בננה", 105, 1.3, 27, 0.4]]}], [{"meal": "בוקר", "items": [["2 מעדני חלבון", 300, 40, 28, 6], ["40 ג' גרנולה", 180, 4, 26, 7]]}, {"meal": "צהריים (כריך)", "items": [["4 פרוסות לחם מלא", 300, 12, 52, 4], ["טונה במים, קופסה מסוננת", 120, 26, 0, 1], ["כף מיונז לייט", 45, 0, 1, 4.5], ["ירקות לכריך (עגבנייה, מלפפון, חסה)", 25, 1, 5, 0.2]]}, {"meal": "ערב", "items": [["פרגית צלויה (150 ג')", 300, 38, 0, 16], ["בורגול מבושל, כוס", 150, 5.5, 34, 0.4], ["סלט ירקות גדול", 50, 2, 10, 0.3], ["כף טחינה גולמית", 90, 2.6, 3, 8], ["כפית שמן זית", 40, 0, 0, 4.5], ["2 תמרים מג'הול", 130, 1, 35, 0]]}, {"meal": "לפני שינה", "items": [["חצי גביע קוטג' 5% (125 ג')", 123, 13.5, 4, 6.5], ["תפוח", 80, 0.4, 21, 0.2]]}], [{"meal": "בוקר", "items": [["2 מעדני חלבון", 300, 40, 28, 6], ["40 ג' שיבולת שועל", 150, 5, 26, 3]]}, {"meal": "צהריים (כריך)", "items": [["4 פרוסות לחם מלא", 300, 12, 52, 4], ["חזה עוף צלוי (100 ג')", 165, 31, 0, 3.6], ["כף גדושה חומוס ממרח (30 ג')", 85, 2.5, 4, 6.5], ["ירקות לכריך (עגבנייה, מלפפון, חסה)", 25, 1, 5, 0.2]]}, {"meal": "ערב", "items": [["שקשוקה מ-3 ביצים", 300, 21.5, 11, 20], ["פיתה מלאה", 230, 8, 45, 2], ["גבינה לבנה 5% (100 ג')", 95, 9, 4, 5], ["סלט ירקות גדול", 50, 2, 10, 0.3]]}, {"meal": "לפני שינה", "items": [["חצי גביע קוטג' 5% (125 ג')", 123, 13.5, 4, 6.5], ["2 תמרים מג'הול", 130, 1, 35, 0]]}], [{"meal": "בוקר", "items": [["2 מעדני חלבון", 300, 40, 28, 6], ["40 ג' גרנולה", 180, 4, 26, 7]]}, {"meal": "צהריים (כריך)", "items": [["4 פרוסות לחם מלא", 300, 12, 52, 4], ["פסטרמה עוף/הודו של גבנץ (80 ג')", 85, 15, 2, 1.5], ["2 פרוסות גבינה צהובה 9%", 105, 11, 0.5, 6.5], ["ירקות לכריך (עגבנייה, מלפפון, חסה)", 25, 1, 5, 0.2]]}, {"meal": "ערב", "items": [["בקר טחון 5% (150 ג' נא)", 210, 31, 0, 9], ["אורז מבושל, כוס", 230, 4.5, 50, 0.5], ["סלט ירקות גדול", 50, 2, 10, 0.3], ["כף טחינה גולמית", 90, 2.6, 3, 8], ["2 תמרים מג'הול", 130, 1, 35, 0]]}, {"meal": "לפני שינה", "items": [["חצי גביע קוטג' 5% (125 ג')", 123, 13.5, 4, 6.5], ["בננה", 105, 1.3, 27, 0.4]]}]];
+const WEEK_MENU = [[{"meal": "בוקר", "items": [["2 מעדני חלבון", 300, 40, 28, 6], ["40 ג' גרנולה", 180, 4, 26, 7]]}, {"meal": "צהריים (כריך)", "items": [["4 פרוסות לחם מלא", 300, 12, 52, 4], ["טונה במים, קופסה מסוננת", 120, 26, 0, 1], ["כף מיונז לייט", 45, 0, 1, 4.5], ["ירקות לכריך (עגבנייה, מלפפון, חסה)", 25, 1, 5, 0.2]]}, {"meal": "ערב", "items": [["פרגית צלויה (150 ג')", 300, 38, 0, 16], ["אורז מבושל, כוס", 230, 4.5, 50, 0.5], ["סלט ירקות גדול", 50, 2, 10, 0.3], ["כף טחינה גולמית", 90, 2.6, 3, 8], ["2 תמרים מג'הול", 130, 1, 35, 0]]}, {"meal": "לפני שינה", "items": [["קוטג' 5%, גביע (250 ג')", 245, 27, 8, 13]]}], [{"meal": "בוקר", "items": [["2 מעדני חלבון", 300, 40, 28, 6], ["40 ג' שיבולת שועל", 150, 5, 26, 3]]}, {"meal": "צהריים (כריך)", "items": [["4 פרוסות לחם מלא", 300, 12, 52, 4], ["חזה עוף צלוי (100 ג')", 165, 31, 0, 3.6], ["כף גדושה חומוס ממרח (30 ג')", 85, 2.5, 4, 6.5], ["ירקות לכריך (עגבנייה, מלפפון, חסה)", 25, 1, 5, 0.2]]}, {"meal": "ערב", "items": [["סלמון אפוי (150 ג')", 310, 33, 0, 19], ["בטטה אפויה (200 ג')", 170, 3, 40, 0.2], ["סלט ירקות גדול", 50, 2, 10, 0.3], ["כף טחינה גולמית", 90, 2.6, 3, 8], ["כפית שמן זית", 40, 0, 0, 4.5]]}, {"meal": "לפני שינה", "items": [["קוטג' 5%, גביע (250 ג')", 245, 27, 8, 13]]}], [{"meal": "בוקר", "items": [["2 מעדני חלבון", 300, 40, 28, 6], ["40 ג' גרנולה", 180, 4, 26, 7]]}, {"meal": "צהריים (כריך)", "items": [["4 פרוסות לחם מלא", 300, 12, 52, 4], ["פסטרמה עוף/הודו של גבנץ (80 ג')", 85, 15, 2, 1.5], ["2 פרוסות גבינה צהובה 9%", 105, 11, 0.5, 6.5], ["ירקות לכריך (עגבנייה, מלפפון, חסה)", 25, 1, 5, 0.2]]}, {"meal": "ערב", "items": [["בקר טחון 5% (150 ג' נא)", 210, 31, 0, 9], ["פסטה מבושלת, כוס", 220, 8, 43, 1.3], ["רוטב עגבניות", 60, 2, 10, 1], ["סלט ירקות גדול", 50, 2, 10, 0.3], ["כפית שמן זית", 40, 0, 0, 4.5], ["20 ג' שקדים", 115, 4, 4, 10]]}, {"meal": "לפני שינה", "items": [["קוטג' 5%, גביע (250 ג')", 245, 27, 8, 13]]}], [{"meal": "בוקר", "items": [["2 מעדני חלבון", 300, 40, 28, 6], ["40 ג' שיבולת שועל", 150, 5, 26, 3]]}, {"meal": "צהריים (כריך)", "items": [["4 פרוסות לחם מלא", 300, 12, 52, 4], ["2 ביצים קשות", 150, 13.0, 1.0, 10], ["גבינה לבנה 5% (100 ג')", 95, 9, 4, 5], ["ירקות לכריך (עגבנייה, מלפפון, חסה)", 25, 1, 5, 0.2]]}, {"meal": "ערב", "items": [["חזה עוף מבושל (150 ג')", 250, 46, 0, 5.5], ["קינואה מבושלת, כוס", 220, 8, 39, 3.5], ["ירקות מבושלים/מוקפצים", 60, 3, 12, 0.5], ["כפית שמן זית", 40, 0, 0, 4.5], ["2 תמרים מג'הול", 130, 1, 35, 0]]}, {"meal": "לפני שינה", "items": [["קוטג' 5%, גביע (250 ג')", 245, 27, 8, 13]]}], [{"meal": "בוקר", "items": [["2 מעדני חלבון", 300, 40, 28, 6], ["40 ג' גרנולה", 180, 4, 26, 7]]}, {"meal": "צהריים (כריך)", "items": [["4 פרוסות לחם מלא", 300, 12, 52, 4], ["טונה במים, קופסה מסוננת", 120, 26, 0, 1], ["כף מיונז לייט", 45, 0, 1, 4.5], ["ירקות לכריך (עגבנייה, מלפפון, חסה)", 25, 1, 5, 0.2]]}, {"meal": "ערב", "items": [["פרגית צלויה (150 ג')", 300, 38, 0, 16], ["בורגול מבושל, כוס", 150, 5.5, 34, 0.4], ["סלט ירקות גדול", 50, 2, 10, 0.3], ["כף טחינה גולמית", 90, 2.6, 3, 8], ["כפית שמן זית", 40, 0, 0, 4.5], ["2 תמרים מג'הול", 130, 1, 35, 0]]}, {"meal": "לפני שינה", "items": [["קוטג' 5%, גביע (250 ג')", 245, 27, 8, 13]]}], [{"meal": "בוקר", "items": [["2 מעדני חלבון", 300, 40, 28, 6], ["40 ג' שיבולת שועל", 150, 5, 26, 3]]}, {"meal": "צהריים (כריך)", "items": [["4 פרוסות לחם מלא", 300, 12, 52, 4], ["חזה עוף צלוי (100 ג')", 165, 31, 0, 3.6], ["כף גדושה חומוס ממרח (30 ג')", 85, 2.5, 4, 6.5], ["ירקות לכריך (עגבנייה, מלפפון, חסה)", 25, 1, 5, 0.2]]}, {"meal": "ערב", "items": [["שקשוקה מ-3 ביצים", 300, 21.5, 11, 20], ["פיתה מלאה", 230, 8, 45, 2], ["גבינה לבנה 5% (100 ג')", 95, 9, 4, 5], ["סלט ירקות גדול", 50, 2, 10, 0.3]]}, {"meal": "לפני שינה", "items": [["קוטג' 5%, גביע (250 ג')", 245, 27, 8, 13]]}], [{"meal": "בוקר", "items": [["2 מעדני חלבון", 300, 40, 28, 6], ["40 ג' גרנולה", 180, 4, 26, 7]]}, {"meal": "צהריים (כריך)", "items": [["4 פרוסות לחם מלא", 300, 12, 52, 4], ["פסטרמה עוף/הודו של גבנץ (80 ג')", 85, 15, 2, 1.5], ["2 פרוסות גבינה צהובה 9%", 105, 11, 0.5, 6.5], ["ירקות לכריך (עגבנייה, מלפפון, חסה)", 25, 1, 5, 0.2]]}, {"meal": "ערב", "items": [["בקר טחון 5% (150 ג' נא)", 210, 31, 0, 9], ["אורז מבושל, כוס", 230, 4.5, 50, 0.5], ["סלט ירקות גדול", 50, 2, 10, 0.3], ["כף טחינה גולמית", 90, 2.6, 3, 8], ["2 תמרים מג'הול", 130, 1, 35, 0]]}, {"meal": "לפני שינה", "items": [["קוטג' 5%, גביע (250 ג')", 245, 27, 8, 13]]}]];
 /* v1.67: the menu can be edited. The user's menu lives in 'week-menu' (same shape as WEEK_MENU, item = [name, kcal,
    protein, carbs, fat, qty?]); until he edits, WEEK_MENU is used. Edits are per weekday and kept for the next weeks.
    qty is a multiplier the − / + buttons move in ¼ steps; the values are always stored already scaled. */
 let weekMenu = null, menuEditing = false, menuEntries = [];
 const MENU_DAY_NAMES = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
+
+/* v1.69: bedtime = a full cup of cottage (27 g protein, was 13.5 + fruit) and no dates at Monday dinner. A saved menu
+   gets the new meal only where the meal still holds exactly the old default items (no qty) — his own edits stay. */
+const MENU_V165_CHANGED = {"0|3": ["חצי גביע קוטג' 5% (125 ג')", "תפוח"], "1|2": ["סלמון אפוי (150 ג')", "בטטה אפויה (200 ג')", "סלט ירקות גדול", "כף טחינה גולמית", "כפית שמן זית", "2 תמרים מג'הול"], "1|3": ["חצי גביע קוטג' 5% (125 ג')"], "2|3": ["חצי גביע קוטג' 5% (125 ג')", "בננה"], "3|3": ["חצי גביע קוטג' 5% (125 ג')", "בננה"], "4|3": ["חצי גביע קוטג' 5% (125 ג')", "תפוח"], "5|3": ["חצי גביע קוטג' 5% (125 ג')", "2 תמרים מג'הול"], "6|3": ["חצי גביע קוטג' 5% (125 ג')", "בננה"]};
+function migrateMenuV169(menu){
+  let changed = false;
+  for (const [key, names] of Object.entries(MENU_V165_CHANGED)){
+    const [d, i] = key.split('|').map(Number);
+    const m = menu[d] && menu[d][i];
+    if (!m || !WEEK_MENU[d] || !WEEK_MENU[d][i]) continue;
+    const same = m.items.length === names.length && m.items.every((it, k) => it[0] === names[k] && (!it[5] || it[5] === 1));
+    if (same){ m.items = JSON.parse(JSON.stringify(WEEK_MENU[d][i].items)); changed = true; }
+  }
+  return changed;
+}
 
 async function loadWeekMenu(){
   if (weekMenu) return weekMenu;
@@ -4900,6 +5018,7 @@ async function loadWeekMenu(){
     if (Array.isArray(v) && v.length === 7) weekMenu = v;
   } catch (e) {}
   if (!weekMenu) weekMenu = JSON.parse(JSON.stringify(WEEK_MENU));
+  else if (migrateMenuV169(weekMenu)) saveWeekMenu();
   return weekMenu;
 }
 
@@ -6775,6 +6894,22 @@ async function exerciseTimeline(){
     });
   }
   Object.values(out).forEach(list => list.sort((a, b) => a.date - b.date));
+  // band-assisted movements: each set gets its real load (v1.69)
+  const bands = await loadBandLog();
+  if (Object.keys(bands).length){
+    const bw = await latestBodyWeight();
+    const exOf = {};
+    DAYS.forEach(d => d.exercises.forEach(ex => { exOf[canonId(ex.id)] = ex; }));
+    Object.entries(out).forEach(([c, list]) => {
+      const bl = bands[c];
+      if (!exOf[c] || !isBandExercise(exOf[c]) || !bl || !bl.length) return;
+      list.forEach(sess => {
+        const a = assistOn(bl, isoDate(sess.date));
+        sess.assist = a;
+        sess.sets = sess.sets.map(x => ({ ...x, load: Math.max(1, bw + (Number(x.weight) > 0 ? Number(x.weight) : 0) - a) }));
+      });
+    });
+  }
   return out;
 }
 
@@ -6801,11 +6936,11 @@ const bestE1RM = (sets) => Math.max(0, ...sets.filter(s => s.weight != null).map
    and est1RM's 12-rep cap missed progress in 12–20 rep exercises). Without weight: average reps.
    stallRun = how many of the latest sessions in a row did not beat the best session before them
    (looking at the last 8). STALL_MIN of them = stuck. */
-const STALL_MIN = 2;
+const STALL_MIN = 3;  // v1.69: was 2 — two flat sessions are normal noise (sleep, a bad day)
 function sessionScore(sets){
   const done = sets.filter(s => s && (Number(s.reps) || 0) > 0);
   if (!done.length) return 0;
-  const val = (s) => Number(s.weight) > 0 ? Number(s.weight) * (1 + Number(s.reps) / 30) : Number(s.reps);
+  const val = (s) => s.load > 0 ? s.load * (1 + Number(s.reps) / 30) : Number(s.weight) > 0 ? Number(s.weight) * (1 + Number(s.reps) / 30) : Number(s.reps);
   return done.reduce((t, s) => t + val(s), 0) / done.length;
 }
 function stallRun(sessions){
@@ -6826,12 +6961,12 @@ function stallInfo(ex, timeline){
   const k = sessions.length >= 3 ? stallRun(sessions) : 0;
   const last = sessions[sessions.length - 1];
   const next = last ? nextWeightSuggestion(ex, { sets: last.sets }) : null;
-  if (!(k >= STALL_MIN && !(next && next.kind === 'up'))) return { stuck: false, k };
+  if (!(k >= STALL_MIN && !progressing(next))) return { stuck: false, k };
   const range = repRange(ex.target);
   const reps = last.sets.map(x => x.reps).filter(r => r != null);
   let todo;
-  if (k >= 4) todo = 'הגיע הזמן לשנות: וריאציה אחרת (משקולות ↔ כבל) או סט נוסף';
-  else if (range && reps.length && reps.every(r => r >= range.hi)) todo = 'לעלות במשקל ולהתחיל מתחתית הטווח';
+  if (k >= 5) todo = 'הגיע הזמן לשנות: וריאציה אחרת (משקולות ↔ כבל) או סט נוסף';
+  else if (range && reps.length && reps.every(r => r >= range.hi)) todo = isBandExercise(ex) ? 'גומייה דקה יותר, ולהתחיל מתחתית הטווח' : 'לעלות במשקל ולהתחיל מתחתית הטווח';
   else todo = 'חזרה אחת יותר באותו משקל, בסט הראשון';
   return { stuck: true, k, todo };
 }
@@ -6841,7 +6976,10 @@ async function renderStallNotes(){
   try { timeline = await exerciseTimeline(); } catch (e) { return; }
   const day = DAYS.find(d => d.key === currentDayKey);
   if (!day) return;
+  const bands = await loadBandLog();
   day.exercises.forEach(ex => {
+    const brow = document.querySelector(`.band-row[data-band="${ex.id}"]`);
+    if (brow) brow.innerHTML = bandRowHtml(ex, timeline[canonId(ex.id)] || [], bands[canonId(ex.id)]);
     const box = document.querySelector(`.stall-note[data-stall="${ex.id}"]`);
     if (!box) return;
     const st = stallInfo(ex, timeline);
@@ -6877,6 +7015,7 @@ async function buildCoachReport(){
     const range = repRange(ex.target);
     const next = nextWeightSuggestion(ex, { sets: last.sets });
     if (next && next.kind === 'up') readyUp.push(`${ex.name}: ${formatWeight(next.weight)}`);
+    if (next && next.kind === 'bridge') readyUp.push(`${ex.name}: ${bridgeText(next)}`);
     if (range){
       const reps = last.sets.map(x => x.reps).filter(r => r != null);
       const span = reps.length ? (Math.min(...reps) === Math.max(...reps) ? `${reps[0]}` : `${Math.min(...reps)}–${Math.max(...reps)}`) : '';
@@ -6894,7 +7033,7 @@ async function buildCoachReport(){
     const recent = afterBreak(sessions);
     if (recent.length >= 3){
       const before = recent.slice(0, -2).map(s => bestE1RM(s.sets));
-      if (stallRun(recent) >= STALL_MIN && !(next && next.kind === 'up')) stalled.push(ex.name);
+      if (stallRun(recent) >= STALL_MIN && !progressing(next)) stalled.push(ex.name);
       const peak = Math.max(...before);
       if (peak > 0 && bestE1RM(last.sets) < peak * 0.93) dropped.push(ex.name);
     }
@@ -6940,7 +7079,7 @@ async function buildCoachReport(){
   if (suspicious.length) add('high', 'נתונים לבדיקה', listHtml(suspicious), 'אם זו טעות הקלדה, תקן או מחק את הסט בהיסטוריה ← "כל הסטים". נתון שגוי מבלבל את ההמלצות להעלאת משקל ואת השיאים.');
   if (tooHeavy.length) add('high', `חזרות מתחת לטווח (${new Set(tooHeavy).size} תרגילים)`, listHtml(tooHeavy, 8), 'איפה שמופיע משקל חדש — עבוד איתו כבר באימון הבא (הוא מופיע גם בכרטיס התרגיל, ו-✓ על שדה ריק שומר אותו). בשאר, רק סט אחד נפל מתחת לטווח: אותו משקל, ועוד חצי דקה מנוחה לפני הסט האחרון. בטווח החזרות השריר גדל, והמפרקים נשמרים.');
   if (lowVol.length && !brkNow) add('high', 'נפח נמוך לשרירים גדולים', `ב-7 הימים האחרונים: ${lowVol.map(m => `${m} ${totals[m] || 0}`).join(' · ')} סטים. היעד 10–20 לשבוע.`, 'הוסף סט אחד לתרגיל הראשון של השריר בכל אימון שלו. מעלים בהדרגה, לא הכול בבת אחת.');
-  if (stalled.length) add('mid', 'תרגילים תקועים', '2 אימונים ברצף או יותר בלי לשפר את הכוח המשוער:<br>' + listHtml(stalled), 'קודם שינה, חלבון ו-RIR 1–2 בסט האחרון. אם עוד שבועיים אין תזוזה — החלף וריאציה (למשל משקולות יד ↔ כבל) או הוסף סט.');
+  if (stalled.length) add('mid', 'תרגילים תקועים', `${STALL_MIN} אימונים ברצף או יותר בלי לשפר את הכוח המשוער:<br>` + listHtml(stalled), 'קודם שינה, חלבון ו-RIR 1–2 בסט האחרון. אם עוד שבועיים אין תזוזה — החלף וריאציה (למשל משקולות יד ↔ כבל) או הוסף סט.');
   if (tooLight.length) add('mid', 'משקל קל מדי', listHtml(tooLight), 'העלה משקל כבר באימון הבא. מעל הטווח זה כבר אימון סיבולת.');
   if (highVol.length) add('mid', 'נפח גבוה', `${highVol.map(m => `${m} ${totals[m]}`).join(' · ')} סטים בשבוע — מעל 20.`, 'מעל 20 סטים לשריר ההתאוששות אחרי 40 נפגעת. הורד סט מהתרגיל האחרון של השריר.');
   if (onceAWeek.length && last7 >= 3 && !brkNow) add('mid', 'שריר שעובד פעם בשבוע', `${onceAWeek.join(', ')} קיבלו השבוע אימון אחד בלבד.`, 'היעד פעמיים בשבוע לכל שריר. אם התוכנית מאפשרת, העבר 2–3 סטים לאימון נוסף.');
@@ -7014,7 +7153,7 @@ document.getElementById('coachOverlay').addEventListener('click', (e) => {
 });
 
 // bump on every change that reaches the phone, and add a line to "History of changes" in CLAUDE.md
-const APP_VERSION = '1.68';
+const APP_VERSION = '1.69';
 const APP_VERSION_DATE = '18.11.2026';
 document.getElementById('appVersion').textContent = `גרסה ${APP_VERSION} · ${APP_VERSION_DATE}`;
 
