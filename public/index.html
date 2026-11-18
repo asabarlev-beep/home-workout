@@ -1272,6 +1272,20 @@
   .vol-fill{ height:100%; border-radius:9px; }
   .vol-track i{ position:absolute; top:-3px; bottom:-3px; width:1px; background:var(--muted); opacity:.55; }
   .vol-legend{ color:var(--muted); font-size:12px; line-height:1.5; margin-top:8px; }
+  /* v1.70: a calmer nutrition screen — the add form opens only when used, logged and later menu meals fold to one line */
+  #nutForm:not(.active):not(.has-pick) .nut-fields, #nutForm:not(.active):not(.has-pick) #nutAddBtn,
+  #nutForm:not(.active):not(.has-pick) .nut-recent, #nutForm:not(.active):not(.has-pick) .nut-meals{ display:none; }
+  #nutForm:not(.active):not(.has-pick) .nut-search{ margin-bottom:14px; }
+  .nut-menu-txt em[hidden]{ display:none; }
+  .nut-menu-row.can-open .nut-menu-txt{ cursor:pointer; }
+  .nut-menu-row.can-open .nut-menu-txt b::after{ content:' ⌄'; color:var(--muted); font-weight:600; }
+  .nut-menu-row.is-done .nut-menu-txt b{ color:var(--muted); font-weight:600; }
+  .nut-menu-undo{ flex:none; background:none; border:0; color:var(--muted); font:inherit; font-size:12.5px; text-decoration:underline; cursor:pointer; padding:6px 4px; }
+  .nut-total-macros{ color:var(--muted); font-size:12px; }
+  .nut-list-title{ cursor:pointer; }
+  .nut-list-title::after{ content:' ⌄'; }
+  #nutEntryList.folded .nut-meal-group{ display:none; }
+  #nutEntryList.folded .nut-list-title::after{ content:' · הצג'; color:var(--accent); font-weight:700; }
   .nut-menu{ margin:0 18px 14px; background:var(--surface2); border:1px solid #3a4351; border-radius:16px; padding:12px 14px; }
   .nut-menu > summary{ list-style:none; display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:4px 10px; cursor:pointer; font-weight:800; font-size:14.5px; }
   .nut-menu > summary::-webkit-details-marker{ display:none; }
@@ -1796,6 +1810,9 @@
       <div class="nut-recent" id="nutRecent"></div>
       <div class="nut-meals" id="nutMeals"></div>
       <div class="nut-meal-builder" id="nutMealBuilder" hidden></div>
+    </div>
+    <div class="history-body" id="nutEntryList"></div>
+    <div style="padding:0 18px;">
       <details class="nut-goal" id="nutGoalBox">
         <summary><span>🎯 יעד יומי</span><span id="nutGoalSummary"></span><span class="nut-goal-edit">שינוי</span></summary>
         <div class="nut-goal-fields">
@@ -1807,7 +1824,6 @@
         <button class="reset-btn" id="goalSaveBtn" style="width:100%;margin-top:8px;">שמור יעד</button>
       </details>
     </div>
-    <div class="history-body" id="nutEntryList"></div>
     <div class="cal-coach" id="calCoach"></div>
   </div>
 </div>
@@ -4736,6 +4752,7 @@ async function addNutritionEntry(){
   document.getElementById('nutCustomGrams').value = '';
   renderCustomFood();
   nameInput.value = ''; calInput.value = ''; proInput.value = ''; carbInput.value = ''; fatInput.value = '';
+  document.getElementById('nutForm').classList.remove('active'); // back to just the search field (v1.70)
 }
 
 async function logNutritionEntry(entry){
@@ -4925,6 +4942,15 @@ document.querySelectorAll('#nutCustom [data-basis]').forEach(btn => btn.addEvent
 document.getElementById('nutCustomGrams').addEventListener('input', renderCustomFood);
 ['nutCalInput', 'nutProInput'].forEach(id => document.getElementById(id).addEventListener('input', renderCustomFood));
 
+// v1.70: the value fields, recent foods and saved meals show only while the search field is in use
+(() => {
+  const input = document.getElementById('nutNameInput'), form = document.getElementById('nutForm');
+  input.addEventListener('focus', () => form.classList.add('active'));
+  input.addEventListener('blur', () => setTimeout(() => {
+    if (document.activeElement && form.contains(document.activeElement)) return;
+    if (!input.value.trim()) form.classList.remove('active');
+  }, 250));
+})();
 document.getElementById('nutNameInput').addEventListener('input', () => {
   if (pickedFood) clearFoodPick();
   renderFoodSuggestions();
@@ -4993,6 +5019,7 @@ const WEEK_MENU = [[{"meal": "בוקר", "items": [["2 מעדני חלבון", 3
    protein, carbs, fat, qty?]); until he edits, WEEK_MENU is used. Edits are per weekday and kept for the next weeks.
    qty is a multiplier the − / + buttons move in ¼ steps; the values are always stored already scaled. */
 let weekMenu = null, menuEditing = false, menuEntries = [];
+const menuOpenRows = new Set(); // menu meals opened by a tap this session ("dow|meal")
 const MENU_DAY_NAMES = ['ראשון', 'שני', 'שלישי', 'רביעי', 'חמישי', 'שישי', 'שבת'];
 
 /* v1.69: bedtime = a full cup of cottage (27 g protein, was 13.5 + fruit) and no dates at Monday dinner. A saved menu
@@ -5050,13 +5077,17 @@ async function renderTodayMenu(entries){
         <div class="nm-add"><input type="text" data-madd="${mi}" placeholder="+ הוסף מרכיב · חפש מאכל" autocomplete="off"><div class="nm-sug" data-msug="${mi}"></div></div>
       </div>`).join('') + `<div class="nm-foot"><button type="button" class="save-btn" data-mdone>סיום עריכה</button><button type="button" class="reset-btn" data-mreset>החזר למקור</button></div>`;
   } else {
+    // v1.70: only the next meal to log shows its foods; the others are one line (tap to see the foods)
+    const nextIdx = day.findIndex((m, i) => m.items.length && !logged(i));
     body = day.map((m, i) => {
       const cal = Math.round(sum(m, 1) / 10) * 10, pro = Math.round(sum(m, 2));
-      const btn = logged(i)
-        ? `<button type="button" class="nut-menu-btn done" data-unmenu="${i}">${ic('check')} נרשם<small>ביטול</small></button>`
+      const isDone = logged(i);
+      const btn = isDone
+        ? `<button type="button" class="nut-menu-undo" data-unmenu="${i}">ביטול</button>`
         : `<button type="button" class="nut-menu-btn" data-menu="${i}">רשום</button>`;
-      return `<div class="nut-menu-row"><div class="nut-menu-txt"><b>${esc(m.meal)} · <span class="nw"><bdi>${pro}</bdi> ג׳ חלבון</span> · <span class="nw"><bdi>${cal}</bdi> קל׳</span></b>
-        <em>${m.items.map(it => esc(menuItemName(it))).join(' · ') || 'אין פריטים'}</em></div>${m.items.length ? btn : ''}</div>`;
+      const open = i === nextIdx || menuOpenRows.has(dow + '|' + i);
+      return `<div class="nut-menu-row${i === nextIdx ? '' : ' can-open'}${isDone ? ' is-done' : ''}" data-mrow="${i}"><div class="nut-menu-txt"><b>${isDone ? '✓ ' : ''}${esc(m.meal)} · <span class="nw"><bdi>${pro}</bdi> ג׳ חלבון</span> · <span class="nw"><bdi>${cal}</bdi> קל׳</span></b>
+        <em${open ? '' : ' hidden'}>${m.items.map(it => esc(menuItemName(it))).join(' · ') || 'אין פריטים'}</em></div>${m.items.length ? btn : ''}</div>`;
     }).join('') + `<div class="nm-links"><button type="button" class="nut-link nm-edit-btn" data-medit>${ic('pencil')} ערוך את התפריט של יום ${MENU_DAY_NAMES[dow]}</button><button type="button" class="nut-link nm-edit-btn" data-mshop>${ic('cart')} רשימת קניות לשבוע</button></div>`;
   }
   const wasOpen = menuEditing || (box.dataset.ready ? box.open : done < day.length);
@@ -5064,6 +5095,11 @@ async function renderTodayMenu(entries){
   box.open = wasOpen; box.dataset.ready = '1';
 
   box.querySelectorAll('[data-menu]').forEach(b => b.addEventListener('click', () => logMenuMeal(dow, Number(b.getAttribute('data-menu')))));
+  box.querySelectorAll('.nut-menu-row.can-open .nut-menu-txt').forEach(t => t.addEventListener('click', () => {
+    const k = dow + '|' + t.parentElement.getAttribute('data-mrow');
+    if (menuOpenRows.has(k)) menuOpenRows.delete(k); else menuOpenRows.add(k);
+    const em = t.querySelector('em'); if (em) em.hidden = !em.hidden;
+  }));
   box.querySelectorAll('[data-unmenu]').forEach(b => b.addEventListener('click', () => {
     const i = Number(b.getAttribute('data-unmenu'));
     showConfirm(`לבטל את הרישום של ${day[i].meal}?`, 'הפריטים של הארוחה יימחקו מהיומן של היום הזה.', () => unlogMenuMeal(dow, i), 'בטל רישום');
@@ -5362,14 +5398,15 @@ function proteinSuggestions(gap){
   return (useful.length ? useful : foods).map((f, i) => ({ f, d: Math.abs(f.protein - gap) + i * 0.01 })).sort((a, b) => a.d - b.d).slice(0, 2).map(x => x.f);
 }
 
-function renderProteinBar(protein, goal){
+function renderProteinBar(protein, goal, menuLeft){
   const target = goal || DEFAULT_PROTEIN_GOAL;
   const pct = Math.min(100, Math.round(protein / target * 100));
   const left = Math.max(0, Math.round(target - protein));
   const pace = left ? proteinPace(protein, target, nutritionDate) : null;
   const behind = pace && pace.behind >= 10;
   const color = pct >= 100 ? 'var(--accent)' : behind ? '#ffb347' : pace ? 'var(--accent)' : pct >= 60 ? '#ffb347' : 'var(--danger)';
-  const sugg = behind ? proteinSuggestions(pace.behind) : [];
+  // while the day's menu still has meals to log, the menu is the answer — no extra foods to suggest (v1.70)
+  const sugg = behind && !menuLeft ? proteinSuggestions(pace.behind) : [];
   document.getElementById('nutProtein').innerHTML = `
     <div class="nut-ring" style="background:conic-gradient(${color} 0 ${pct}%, var(--bg) ${pct}% 100%);">
       <div class="nut-ring-inner"><b>${Math.round(protein)}</b><span>מתוך ${target}</span></div>
@@ -5555,6 +5592,7 @@ async function renderCalorieCoach(){
   });
 }
 
+const nutListOpen = {}; // per date: is the list of logged foods unfolded (this session)
 async function renderNutritionPanel(){
   document.getElementById('nutDateLabel').textContent = displayDateHe(nutritionDate);
   const data = await loadNutritionDay(nutritionDate);
@@ -5571,7 +5609,9 @@ async function renderNutritionPanel(){
     totals.fat += Number(e.fat) || 0;
   });
 
-  renderProteinBar(totals.protein, goal.protein);
+  const menuDay = (await loadWeekMenu())[nutritionDate.getDay()] || [];
+  const menuLeft = menuDay.some((m, i) => m.items.length && !entries.some(e => e.menu === nutritionDate.getDay() + '|' + i));
+  renderProteinBar(totals.protein, goal.protein, menuLeft);
   renderTodayMenu(entries);
   renderCalorieCoach();
   renderRecentFoods();
@@ -5579,7 +5619,7 @@ async function renderNutritionPanel(){
 
   const num = (v) => Math.round(v).toLocaleString('he-IL');
   // the big number is what is LEFT for the day (or how much over); eaten / goal is the small line under it
-  const tile = (val, goalVal, label, unit, wide) => {
+  const tile = (val, goalVal, label, unit, wide, extra) => {
     const pct = goalVal ? Math.min(100, Math.round(val / goalVal * 100)) : 0;
     const over = goalVal && val > goalVal * 1.05;
     const left = goalVal ? goalVal - val : null;
@@ -5591,10 +5631,14 @@ async function renderNutritionPanel(){
       <span class="nut-total-main">${main}</span>
       <span class="nut-total-sub">${goalVal ? `אכלת <bdi>${num(val)}</bdi> מתוך <bdi>${num(goalVal)}</bdi>` : 'אין יעד'}</span>
       ${goalVal ? `<span class="nut-total-track"><i style="width:${pct}%;${over ? 'background:#ffb347' : ''}"></i></span>` : ''}
+      ${extra || ''}
     </div>`;
   };
+  // carbs and fat get a tile only when they have a goal; otherwise one small line under the calories (v1.70)
+  const macroLine = [!goal.carbs ? `פחמ׳ <bdi>${num(totals.carbs)}</bdi> ג׳` : '', !goal.fat ? `שומן <bdi>${num(totals.fat)}</bdi> ג׳` : ''].filter(Boolean).join(' · ');
   document.getElementById('nutTotals').innerHTML =
-    tile(totals.calories, goal.calories, 'קלוריות', 'קל׳', true) + tile(totals.carbs, goal.carbs, 'פחמימות', 'ג׳') + tile(totals.fat, goal.fat, 'שומן', 'ג׳');
+    tile(totals.calories, goal.calories, 'קלוריות', 'קל׳', true, macroLine ? `<span class="nut-total-macros">${macroLine}</span>` : '')
+    + (goal.carbs ? tile(totals.carbs, goal.carbs, 'פחמימות', 'ג׳') : '') + (goal.fat ? tile(totals.fat, goal.fat, 'שומן', 'ג׳') : '');
 
   document.getElementById('nutGoalSummary').innerHTML = [
     goal.calories ? `<bdi>${num(goal.calories)}</bdi> קל׳` : 'בלי יעד קלוריות',
@@ -5614,12 +5658,21 @@ async function renderNutritionPanel(){
 
   const list = document.getElementById('nutEntryList');
   if (!entries.length){
+    list.classList.remove('folded');
     list.innerHTML = '<div class="history-empty">עדיין לא נרשם אוכל ליום זה</div>';
     return;
   }
   // grouped by meal (from the time it was logged), each food on one compact row
   const isToday = isoDate(nutritionDate) === isoDate(new Date());
-  list.innerHTML = `<div class="nut-list-title">${isToday ? 'היום' : displayDateHe(nutritionDate)} · ${entries.length} פריטים</div>`;
+  list.innerHTML = `<div class="nut-list-title" role="button">${isToday ? 'היום' : displayDateHe(nutritionDate)} · ${entries.length} פריטים · <bdi>${num(totals.calories)}</bdi> קל׳</div>`;
+  // v1.70: with a menu the logged foods mostly repeat it, so the list starts folded (tap the title)
+  const listKey = isoDate(nutritionDate);
+  if (!(listKey in nutListOpen)) nutListOpen[listKey] = !menuDay.length;
+  list.classList.toggle('folded', !nutListOpen[listKey]);
+  list.querySelector('.nut-list-title').addEventListener('click', () => {
+    nutListOpen[listKey] = !nutListOpen[listKey];
+    list.classList.toggle('folded', !nutListOpen[listKey]);
+  });
   const groups = new Map();
   entries.forEach((e, idx) => {
     const meal = mealOfTime(e.time);
@@ -7153,7 +7206,7 @@ document.getElementById('coachOverlay').addEventListener('click', (e) => {
 });
 
 // bump on every change that reaches the phone, and add a line to "History of changes" in CLAUDE.md
-const APP_VERSION = '1.69';
+const APP_VERSION = '1.70';
 const APP_VERSION_DATE = '18.11.2026';
 document.getElementById('appVersion').textContent = `גרסה ${APP_VERSION} · ${APP_VERSION_DATE}`;
 
