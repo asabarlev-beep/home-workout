@@ -1065,6 +1065,13 @@
   .cc-mini[open] summary{ padding-bottom:6px; }
   .cc-mini .cc-progress, .cc-mini .cc-note{ padding:0 14px; }
   .cc-mini .cc-note{ padding-bottom:13px; }
+  .nut-row.editing{ display:block; }
+  .nut-edit{ background:var(--surface2); border-radius:14px; padding:12px; }
+  .nut-edit-name{ font-weight:700; font-size:14px; margin-bottom:8px; }
+  .nut-edit-name small{ display:block; color:var(--muted); font-weight:600; font-size:12px; margin-top:2px; }
+  .nut-edit-res{ text-align:center; color:var(--accent); font-weight:700; margin:8px 0; }
+  .nut-edit-btns{ display:flex; gap:8px; }
+  .nut-edit-btns button{ flex:1; margin:0; }
   .nut-entry-del{ flex:0 0 auto; background:none; border:none; color:var(--muted); opacity:.6; font-size:14px; padding:4px 6px; cursor:pointer; }
 
   /* ---------- premium pass: line icons, a status card, quieter accent (green only for done / primary) ---------- */
@@ -1276,7 +1283,8 @@
   .nut-menu-txt em{ font-style:normal; color:var(--muted); font-size:12px; }
   .nut-menu-txt .nw{ white-space:nowrap; }
   .nut-menu-btn{ flex:none; background:var(--accent); color:#111; border:0; border-radius:10px; padding:8px 12px; font-weight:800; font-size:13px; font-family:inherit; cursor:pointer; }
-  .nut-menu-btn.done{ background:transparent; color:var(--accent); border:1px solid var(--accent); cursor:default; }
+  .nut-menu-btn.done{ background:transparent; color:var(--accent); border:1px solid var(--accent); display:flex; flex-direction:column; align-items:center; gap:1px; line-height:1.2; }
+  .nut-menu-btn.done small{ color:var(--muted); font-weight:600; font-size:11px; }
   .cal-coach{ margin:0 18px 28px; background:var(--bg); border-radius:16px; padding:14px; }
   .cal-coach:empty{ display:none; }
   .cal-coach .cc-title{ font-size:14px; font-weight:800; margin-bottom:10px; }
@@ -4847,7 +4855,7 @@ async function renderTodayMenu(entries){
   const rows = day.map((m, i) => {
     const cal = Math.round(sum(m, 1) / 10) * 10, pro = Math.round(sum(m, 2));
     const btn = logged(i)
-      ? `<button type="button" class="nut-menu-btn done" disabled>${ic('check')} נרשם</button>`
+      ? `<button type="button" class="nut-menu-btn done" data-unmenu="${i}">${ic('check')} נרשם<small>ביטול</small></button>`
       : `<button type="button" class="nut-menu-btn" data-menu="${i}">רשום</button>`;
     return `<div class="nut-menu-row"><div class="nut-menu-txt"><b>${esc(m.meal)} · <span class="nw"><bdi>${pro}</bdi> ג׳ חלבון</span> · <span class="nw"><bdi>${cal}</bdi> קל׳</span></b>
       <em>${m.items.map(it => esc(it[0])).join(' · ')}</em></div>${btn}</div>`;
@@ -4857,6 +4865,21 @@ async function renderTodayMenu(entries){
   box.innerHTML = `<summary>🍽️ תפריט ליום ${names[dow]}<span>נרשמו ${done} מתוך ${day.length} · <bdi>${Math.round(total(2))}</bdi> ג׳ חלבון · <bdi>${(Math.round(total(1) / 10) * 10).toLocaleString('he-IL')}</bdi> קל׳</span></summary>${rows}`;
   box.open = wasOpen; box.dataset.ready = '1';
   box.querySelectorAll('[data-menu]').forEach(b => b.addEventListener('click', () => logMenuMeal(dow, Number(b.getAttribute('data-menu')))));
+  box.querySelectorAll('[data-unmenu]').forEach(b => b.addEventListener('click', () => {
+    const i = Number(b.getAttribute('data-unmenu'));
+    showConfirm(`לבטל את הרישום של ${day[i].meal}?`, 'הפריטים של הארוחה יימחקו מהיומן של היום הזה.', () => unlogMenuMeal(dow, i), 'בטל רישום');
+  }));
+}
+
+// v1.66: undo "רשום" — removes exactly the entries that meal added (tagged menu:'<dow>|<meal>') from the sheet's date
+async function unlogMenuMeal(dow, i){
+  const data = await loadNutritionDay(nutritionDate);
+  const before = (data.entries || []).length;
+  data.entries = (data.entries || []).filter(e => e.menu !== dow + '|' + i);
+  if (data.entries.length === before) return;
+  await saveNutritionDay(nutritionDate, data);
+  showToast(`הרישום של ${WEEK_MENU[dow][i].meal} בוטל`);
+  renderNutritionPanel();
 }
 
 async function logMenuMeal(dow, i){
@@ -5274,10 +5297,11 @@ async function renderNutritionPanel(){
         <span class="nut-meal-sum">${num(cal)} קל׳ · <b>${round1(pro)} ג׳ חלבון</b></span></div>` +
       g.items.map(({ e, idx }) => {
         const [title, ...rest] = String(e.name).split(' · ');
-        const sub = [rest.join(' · '), e.time, `פחמ׳ ${Math.round(e.carbs || 0)}`, `שומן ${Math.round(e.fat || 0)}`].filter(Boolean).join(' · ');
+        const sub = [e.qty && e.qty !== 1 ? `כמות ×${fmtQty(e.qty)}` : '', rest.join(' · '), e.time, `פחמ׳ ${Math.round(e.carbs || 0)}`, `שומן ${Math.round(e.fat || 0)}`].filter(Boolean).join(' · ');
         return `<div class="nut-row">
           <div class="nut-row-text"><div class="nut-row-name"><bdi>${esc(title)}</bdi></div><div class="nut-row-sub">${esc(sub)}</div></div>
           <div class="nut-row-vals"><b>${round1(e.protein)}<small> ג׳</small></b><span>${Math.round(e.calories || 0)} קל׳</span></div>
+          <button class="nut-entry-del" data-nutedit="${idx}" title="שנה כמות" aria-label="שנה כמות">${ic('pencil')}</button>
           <button class="nut-entry-del" data-nutdel="${idx}" title="מחק" aria-label="מחק">${ic('trash')}</button>
         </div>`;
       }).join('');
@@ -5289,6 +5313,50 @@ async function renderNutritionPanel(){
       showConfirm('למחוק פריט?', 'הפריט יימחק מיומן התזונה.', () => deleteNutritionEntry(delIdx), 'מחק');
     });
   });
+  list.querySelectorAll('[data-nutedit]').forEach(btn => {
+    btn.addEventListener('click', () => openEntryQtyEditor(btn.closest('.nut-row'), entries, Number(btn.getAttribute('data-nutedit'))));
+  });
+}
+
+/* v1.66: change how much of a logged food was eaten. The first edit keeps the original values in e.base and every
+   edit scales from them (e.qty = ¼ … 5), so ×½ then ×1 gets back exactly what was logged. */
+function openEntryQtyEditor(row, entries, idx){
+  const e = entries[idx];
+  if (!row || !e) return;
+  const base = e.base || { calories: Number(e.calories) || 0, protein: Number(e.protein) || 0, carbs: Number(e.carbs) || 0, fat: Number(e.fat) || 0 };
+  let q = e.qty || 1;
+  const title = String(e.name).split(' · ')[0];
+  row.classList.add('editing');
+  row.innerHTML = `<div class="nut-edit">
+      <div class="nut-edit-name"><bdi>${esc(title)}</bdi><small>כמה מזה אכלת? 1 = כמו שנרשם · ½ = חצי</small></div>
+      <div class="nut-qty"><button type="button" class="nut-qty-step" data-q="-1" aria-label="פחות">−</button>
+        <label class="nut-qty-field"><input type="text" readonly aria-label="כמות"></label>
+        <button type="button" class="nut-qty-step" data-q="1" aria-label="עוד">+</button></div>
+      <div class="nut-edit-res"></div>
+      <div class="nut-edit-btns"><button type="button" class="save-btn" data-save>שמור</button><button type="button" class="reset-btn" data-cancel>ביטול</button></div>
+    </div>`;
+  const input = row.querySelector('input'), res = row.querySelector('.nut-edit-res');
+  const show = () => {
+    input.value = fmtQty(q);
+    res.innerHTML = `<bdi>${round1(base.protein * q)}</bdi> ג׳ חלבון · <bdi>${Math.round(base.calories * q)}</bdi> קל׳`;
+  };
+  row.querySelectorAll('[data-q]').forEach(b => b.addEventListener('click', () => {
+    q = Math.min(5, Math.max(0.25, Math.round((q + 0.25 * Number(b.getAttribute('data-q'))) * 4) / 4));
+    show();
+  }));
+  row.querySelector('[data-cancel]').addEventListener('click', () => renderNutritionPanel());
+  row.querySelector('[data-save]').addEventListener('click', async () => {
+    const data = await loadNutritionDay(nutritionDate);
+    const cur = (data.entries || [])[idx];
+    if (!cur || cur.name !== e.name || cur.time !== e.time){ renderNutritionPanel(); return; }
+    cur.base = base; cur.qty = q;
+    ['calories', 'protein', 'carbs', 'fat'].forEach(k => { cur[k] = round1(base[k] * q); });
+    if (q === 1){ delete cur.qty; delete cur.base; }
+    await saveNutritionDay(nutritionDate, data);
+    showToast(`עודכן · ${round1(base.protein * q)} ג׳ חלבון`);
+    renderNutritionPanel();
+  });
+  show();
 }
 
 // meal from the logged time "HH:MM"; entries without a time go last
@@ -6727,7 +6795,7 @@ document.getElementById('coachOverlay').addEventListener('click', (e) => {
 });
 
 // bump on every change that reaches the phone, and add a line to "History of changes" in CLAUDE.md
-const APP_VERSION = '1.65';
+const APP_VERSION = '1.66';
 const APP_VERSION_DATE = '18.11.2026';
 document.getElementById('appVersion').textContent = `גרסה ${APP_VERSION} · ${APP_VERSION_DATE}`;
 
