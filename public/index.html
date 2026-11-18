@@ -1315,6 +1315,20 @@
   .nm-none{ color:var(--muted); font-size:12px; padding:6px 2px; }
   .nm-foot{ display:flex; gap:8px; margin-top:10px; }
   .nm-foot button{ flex:1; margin:0; }
+  /* v1.71: the whole week's menu on one screen */
+  .wm-day{ border:1px solid var(--line); border-radius:14px; margin-bottom:8px; background:var(--surface2); }
+  .wm-day > summary{ list-style:none; display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:2px 10px; padding:11px 12px; cursor:pointer; }
+  .wm-day > summary::-webkit-details-marker{ display:none; }
+  .wm-day > summary b{ font-size:15px; }
+  .wm-day > summary b small{ color:var(--accent); font-size:12px; font-weight:700; margin-inline-start:6px; }
+  .wm-day > summary span{ color:var(--muted); font-size:12.5px; }
+  .wm-day > summary::after{ content:'⌄'; color:var(--muted); margin-inline-start:auto; }
+  .wm-day[open] > summary::after{ content:'⌃'; }
+  .wm-meal{ padding:8px 12px; border-top:1px solid var(--line); font-size:13px; line-height:1.45; }
+  .wm-meal b{ display:block; font-size:13.5px; }
+  .wm-meal b span{ color:var(--muted); font-weight:600; font-size:12px; }
+  .wm-meal em{ font-style:normal; color:var(--muted); font-size:12.5px; }
+  .wm-open{ display:block; width:calc(100% - 24px); margin:6px 12px 12px; }
   .shop-sub{ color:var(--muted); font-size:13px; margin-bottom:10px; line-height:1.5; }
   .shop-add{ display:flex; gap:8px; margin-bottom:12px; }
   .shop-add input{ flex:1; min-width:0; background:var(--bg); border:1px solid #3a4351; border-radius:12px; color:var(--text); padding:10px 12px; font-size:15px; font-family:inherit; }
@@ -1662,6 +1676,7 @@
       <button class="reset-btn" id="openCoachBtn" style="text-align:right;"><i data-ic="trophy"></i> דוח מאמן — שדרוגים</button>
       <button class="reset-btn" id="openBwBtn" style="text-align:right;"><i data-ic="scale"></i> מעקב משקל גוף</button>
       <button class="reset-btn" id="openNutBtn" style="text-align:right;"><i data-ic="apple"></i> יומן תזונה</button>
+      <button class="reset-btn" id="openWeekMenuBtn" style="text-align:right;"><i data-ic="apple"></i> התפריט של כל השבוע</button>
       <button class="reset-btn" id="openShopBtn" style="text-align:right;"><i data-ic="cart"></i> רשימת קניות לשבוע</button>
       <button class="reset-btn" id="openBreakBtn" style="text-align:right;"><i data-ic="pause"></i> הפסקה מאימונים — מחלה, טיפול, חופשה</button>
       <button class="reset-btn" id="openBackupBtn" style="text-align:right;"><i data-ic="swap"></i> גיבוי וייבוא נתונים</button>
@@ -1697,6 +1712,16 @@
       <button class="history-close" id="breakCloseBtn" aria-label="סגור"><i data-ic="x"></i></button>
     </div>
     <div id="breakBody" style="padding:16px 18px 30px"></div>
+  </div>
+</div>
+
+<div class="history-overlay" id="weekMenuOverlay">
+  <div class="history-panel">
+    <div class="history-head">
+      <h2>התפריט של כל השבוע</h2>
+      <button class="history-close" id="weekMenuCloseBtn" aria-label="סגור"><i data-ic="x"></i></button>
+    </div>
+    <div id="weekMenuBody" style="padding:12px 18px 30px"></div>
   </div>
 </div>
 
@@ -5088,7 +5113,7 @@ async function renderTodayMenu(entries){
       const open = i === nextIdx || menuOpenRows.has(dow + '|' + i);
       return `<div class="nut-menu-row${i === nextIdx ? '' : ' can-open'}${isDone ? ' is-done' : ''}" data-mrow="${i}"><div class="nut-menu-txt"><b>${isDone ? '✓ ' : ''}${esc(m.meal)} · <span class="nw"><bdi>${pro}</bdi> ג׳ חלבון</span> · <span class="nw"><bdi>${cal}</bdi> קל׳</span></b>
         <em${open ? '' : ' hidden'}>${m.items.map(it => esc(menuItemName(it))).join(' · ') || 'אין פריטים'}</em></div>${m.items.length ? btn : ''}</div>`;
-    }).join('') + `<div class="nm-links"><button type="button" class="nut-link nm-edit-btn" data-medit>${ic('pencil')} ערוך את התפריט של יום ${MENU_DAY_NAMES[dow]}</button><button type="button" class="nut-link nm-edit-btn" data-mshop>${ic('cart')} רשימת קניות לשבוע</button></div>`;
+    }).join('') + `<div class="nm-links"><button type="button" class="nut-link nm-edit-btn" data-medit>${ic('pencil')} ערוך את התפריט של יום ${MENU_DAY_NAMES[dow]}</button><button type="button" class="nut-link nm-edit-btn" data-mweek>${ic('apple')} כל השבוע</button><button type="button" class="nut-link nm-edit-btn" data-mshop>${ic('cart')} רשימת קניות לשבוע</button></div>`;
   }
   const wasOpen = menuEditing || (box.dataset.ready ? box.open : done < day.length);
   box.innerHTML = head + body;
@@ -5106,6 +5131,8 @@ async function renderTodayMenu(entries){
   }));
   const edit = box.querySelector('[data-medit]');
   if (edit) edit.addEventListener('click', () => { menuEditing = true; renderTodayMenu(); });
+  const weekBtn = box.querySelector('[data-mweek]');
+  if (weekBtn) weekBtn.addEventListener('click', openWeekMenu);
   const shopBtn = box.querySelector('[data-mshop]');
   if (shopBtn) shopBtn.addEventListener('click', openShop);
   if (!menuEditing) return;
@@ -5255,6 +5282,43 @@ async function renderShop(){
   document.getElementById('shopAddInput').addEventListener('keydown', e => { if (e.key === 'Enter') add(); });
   document.getElementById('shopClearBtn').addEventListener('click', async () => { const s2 = await loadShop(); s2.checked = []; await saveShop(s2); renderShop(); });
 }
+
+/* v1.71: all 7 days of the menu (his edited one) on one screen; today is open, "פתח ביומן" jumps the nutrition
+   sheet to that day of this week (Sunday to Saturday) to log or edit it */
+async function renderWeekMenu(){
+  const menu = await loadWeekMenu();
+  const today = new Date().getDay();
+  const sum = (items, k) => items.reduce((t, it) => t + (Number(it[k]) || 0), 0);
+  const num = (v) => Math.round(v).toLocaleString('he-IL');
+  const days = [0, 1, 2, 3, 4, 5, 6].map(d => {
+    const meals = menu[d] || [];
+    const all = meals.flatMap(m => m.items);
+    return `<details class="wm-day"${d === today ? ' open' : ''}>
+      <summary><b>יום ${MENU_DAY_NAMES[d]}${d === today ? '<small>היום</small>' : ''}</b><span><bdi>${Math.round(sum(all, 2))}</bdi> ג׳ חלבון · <bdi>${num(Math.round(sum(all, 1) / 10) * 10)}</bdi> קל׳</span></summary>
+      ${meals.map(m => `<div class="wm-meal"><b>${esc(m.meal)} <span>· <bdi>${Math.round(sum(m.items, 2))}</bdi> ג׳ · <bdi>${Math.round(sum(m.items, 1) / 10) * 10}</bdi> קל׳</span></b>
+        <em>${m.items.map(it => esc(menuItemName(it))).join(' · ') || 'אין פריטים'}</em></div>`).join('')}
+      <button type="button" class="reset-btn wm-open" data-wmday="${d}">פתח ביומן — לרשום או לערוך</button>
+    </details>`;
+  }).join('');
+  const body = document.getElementById('weekMenuBody');
+  body.innerHTML = `<div class="shop-sub">כולל השינויים שעשית בתפריט. לחץ על יום כדי לראות אותו.</div>${days}`;
+  body.querySelectorAll('[data-wmday]').forEach(b => b.addEventListener('click', () => {
+    const d = Number(b.getAttribute('data-wmday'));
+    const date = new Date(); date.setHours(12, 0, 0, 0); date.setDate(date.getDate() - date.getDay() + d);
+    document.getElementById('weekMenuOverlay').classList.remove('open');
+    openNutrition(date);
+  }));
+}
+function openWeekMenu(){
+  closeAllSheets();
+  document.getElementById('weekMenuOverlay').classList.add('open');
+  renderWeekMenu();
+}
+document.getElementById('openWeekMenuBtn').addEventListener('click', openWeekMenu);
+document.getElementById('weekMenuCloseBtn').addEventListener('click', () => document.getElementById('weekMenuOverlay').classList.remove('open'));
+document.getElementById('weekMenuOverlay').addEventListener('click', (e) => {
+  if (e.target.id === 'weekMenuOverlay') document.getElementById('weekMenuOverlay').classList.remove('open');
+});
 
 function openShop(){
   closeAllSheets();
@@ -5760,8 +5824,8 @@ function mealOfTime(t){
   return { key: 'night', label: 'לילה', icon: '🌌', order: 4 };
 }
 
-async function openNutrition(){
-  nutritionDate = new Date();
+async function openNutrition(date){
+  nutritionDate = date instanceof Date ? date : new Date();
   await loadMyFoods();
   clearFoodPick();
   closeMealBuilder();
@@ -7206,7 +7270,7 @@ document.getElementById('coachOverlay').addEventListener('click', (e) => {
 });
 
 // bump on every change that reaches the phone, and add a line to "History of changes" in CLAUDE.md
-const APP_VERSION = '1.70';
+const APP_VERSION = '1.71';
 const APP_VERSION_DATE = '18.11.2026';
 document.getElementById('appVersion').textContent = `גרסה ${APP_VERSION} · ${APP_VERSION_DATE}`;
 
