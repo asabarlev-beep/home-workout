@@ -1655,7 +1655,7 @@
       <h2 id="confirmTitle">לנקות את הטופס?</h2>
     </div>
     <div style="padding:20px 18px 26px;">
-      <p style="color:var(--muted);font-size:14px;margin:0 0 18px;" id="confirmMessage">כל הנתונים שהוזנו בטופס הנוכחי (שלא נשמרו) יימחקו ולא ניתן יהיה לשחזר אותם.</p>
+      <p style="color:var(--muted);font-size:14px;margin:0 0 18px;white-space:pre-line;" id="confirmMessage">כל הנתונים שהוזנו בטופס הנוכחי (שלא נשמרו) יימחקו ולא ניתן יהיה לשחזר אותם.</p>
       <div style="display:flex;gap:10px;">
         <button class="reset-btn" id="confirmCancelBtn" style="flex:1;">ביטול</button>
         <button class="save-btn" id="confirmOkBtn" style="flex:1;background:var(--danger);color:#fff;">נקה בכל זאת</button>
@@ -1863,12 +1863,15 @@
       <div class="cb-title">גיבוי אוטומטי בענן</div>
       <p style="color:var(--muted);font-size:13px;margin:0;">פעם בשבוע האפליקציה שומרת עותק מלא בענן, בנפרד מהסנכרון. נשמרים 12 הגיבויים האחרונים, ואפשר לשחזר כל אחד מהם.</p>
       <button class="save-btn" id="cloudBackupBtn">☁️ גבה עכשיו לענן</button>
-      <div id="cloudBackups"></div>
+      <details class="cb-restore" style="margin-top:8px">
+        <summary style="font-weight:700;font-size:14px;color:var(--danger);cursor:pointer">⚠️ שחזור מגיבוי — מחליף את הנתונים</summary>
+        <div id="cloudBackups"></div>
+      </details>
       <div class="cb-title" style="margin-top:8px">קובץ גיבוי</div>
       <p style="color:var(--muted);font-size:13px;margin:0;">עותק בטלפון שלך — שווה להוריד לפני שינויים גדולים.</p>
       <button class="reset-btn" id="exportBtn">⬇️ הורד קובץ גיבוי</button>
       <label class="video-btn" style="justify-content:center;">
-        ⬆️ <span>ייבוא קובץ גיבוי</span>
+        ⬆️ <span>ייבוא קובץ גיבוי (מחליף את הנתונים)</span>
         <input type="file" accept="application/json" style="display:none" id="importFileInput">
       </label>
     </div>
@@ -2583,7 +2586,11 @@ async function renderExercises(){
       else if (action === 'edit') editExercise(currentDayKey, exId);
       else if (action === 'up') moveExercise(currentDayKey, exId, -1);
       else if (action === 'down') moveExercise(currentDayKey, exId, 1);
-      else if (action === 'del') removeExercise(currentDayKey, exId);
+      else if (action === 'del'){
+        const dk = currentDayKey;
+        const exName = ((DAYS.find(d => d.key === dk) || {exercises: []}).exercises.find(e => e.id === exId) || {}).name || 'התרגיל';
+        showConfirm('להסיר את התרגיל?', `"${exName}" יוסר מהאימון הזה. ההיסטוריה שלו נשמרת.`, () => removeExercise(dk, exId), 'הסר');
+      }
       else if (action === 'bar') cycleBar(currentDayKey, exId);
       else if (action === 'pair') togglePair(currentDayKey, exId);
       else if (action === 'setsminus') changeExerciseSets(currentDayKey, exId, -1);
@@ -3161,10 +3168,26 @@ function clearForm(){
   updateLiveVolumeDisplay();
 }
 
-function showConfirm(title, message, onConfirm, confirmLabel){
+// opts.delay (seconds): the OK button stays locked with a countdown, so a reflex tap can't confirm a big change (restore / import)
+let confirmDelayTimer = null;
+function showConfirm(title, message, onConfirm, confirmLabel, opts){
+  const ok = document.getElementById('confirmOkBtn');
+  const label = confirmLabel || 'אישור';
   document.getElementById('confirmTitle').textContent = title;
   document.getElementById('confirmMessage').textContent = message;
-  document.getElementById('confirmOkBtn').textContent = confirmLabel || 'אישור';
+  clearInterval(confirmDelayTimer);
+  let left = (opts && opts.delay) || 0;
+  ok.disabled = left > 0;
+  ok.style.opacity = left > 0 ? '0.45' : '';
+  ok.textContent = left > 0 ? `${label} (${left})` : label;
+  if (left > 0){
+    confirmDelayTimer = setInterval(() => {
+      left--;
+      if (left > 0){ ok.textContent = `${label} (${left})`; return; }
+      clearInterval(confirmDelayTimer);
+      ok.disabled = false; ok.style.opacity = ''; ok.textContent = label;
+    }, 1000);
+  }
   pendingConfirmAction = onConfirm;
   document.getElementById('confirmOverlay').classList.add('open');
 }
@@ -5152,10 +5175,14 @@ async function renderTodayMenu(entries){
     if (q === 1) it.length = 5; else it[5] = q;
     await saveWeekMenu(); renderTodayMenu();
   }));
-  box.querySelectorAll('[data-mdel]').forEach(b => b.addEventListener('click', async () => {
+  box.querySelectorAll('[data-mdel]').forEach(b => b.addEventListener('click', () => {
     const [mi, ii] = b.getAttribute('data-mdel').split('|').map(Number);
-    day[mi].items.splice(ii, 1);
-    await saveWeekMenu(); renderTodayMenu();
+    const it = day[mi] && day[mi].items[ii];
+    if (!it) return;
+    showConfirm('להסיר מהתפריט?', `"${it[0]}" יוסר מ${day[mi].meal}.`, async () => {
+      day[mi].items.splice(ii, 1);
+      await saveWeekMenu(); renderTodayMenu();
+    }, 'הסר');
   }));
   box.querySelectorAll('[data-madd]').forEach(inp => inp.addEventListener('input', () => {
     const mi = Number(inp.getAttribute('data-madd'));
@@ -5267,9 +5294,12 @@ async function renderShop(){
   }));
   body.querySelectorAll('[data-shopdel]').forEach(b => b.addEventListener('click', async (ev) => {
     ev.preventDefault();
-    const n = b.getAttribute('data-shopdel'), s2 = await loadShop();
-    s2.extra = s2.extra.filter(x => x !== n); s2.checked = s2.checked.filter(x => x !== 'x:' + n);
-    await saveShop(s2); renderShop();
+    const n = b.getAttribute('data-shopdel');
+    showConfirm('להסיר מהרשימה?', `"${n}" יוסר מרשימת הקניות.`, async () => {
+      const s2 = await loadShop();
+      s2.extra = s2.extra.filter(x => x !== n); s2.checked = s2.checked.filter(x => x !== 'x:' + n);
+      await saveShop(s2); renderShop();
+    }, 'הסר');
   }));
   const add = async () => {
     const inp = document.getElementById('shopAddInput'), n = inp.value.trim().replace(/[<>"&]/g, '');
@@ -5862,6 +5892,46 @@ async function collectAllData(){
   return bundle;
 }
 
+// what a restore/import would erase: records in the current data that the incoming copy doesn't have
+// (only keys present in both — applyBackupBundle leaves keys missing from the copy untouched)
+function backupLossLines(current, incoming){
+  const parse = v => { try { return typeof v === 'string' ? JSON.parse(v) : v; } catch (e) { return null; } };
+  let sessions = 0, sets = 0, foods = 0, weighs = 0, waists = 0;
+  for (const k of Object.keys(incoming)){
+    if (!(k in current) || current[k] === incoming[k]) continue;
+    const a = parse(current[k]), b = parse(incoming[k]);
+    if (!a || !b) continue;
+    if (k.startsWith('day-data:')){
+      const have = new Set((b.history || []).map(h => h.date));
+      sessions += (a.history || []).filter(h => !have.has(h.date)).length;
+    } else if (k.startsWith('set-log:') && Array.isArray(a) && Array.isArray(b)){
+      const id = e => [e.date, e.time, e.exerciseId, e.setIndex].join('|');
+      const have = new Set(b.map(id));
+      sets += a.filter(e => !have.has(id(e))).length;
+    } else if (k.startsWith('nutrition:')){
+      foods += Math.max(0, (a.entries || []).length - (b.entries || []).length);
+    } else if (k === 'bodyweight-log' && Array.isArray(a) && Array.isArray(b)){
+      weighs += Math.max(0, a.length - b.length);
+    } else if (k === 'waist-log' && Array.isArray(a) && Array.isArray(b)){
+      waists += Math.max(0, a.length - b.length);
+    }
+  }
+  const lines = [];
+  if (sessions) lines.push(`• ${sessions} אימונים שמורים`);
+  if (sets) lines.push(`• ${sets} סטים`);
+  if (foods) lines.push(`• ${foods} פריטים ביומן התזונה`);
+  if (weighs) lines.push(`• ${weighs} שקילות`);
+  if (waists) lines.push(`• ${waists} מדידות מותן`);
+  return lines;
+}
+
+function restoreWarning(whenText, lines){
+  const loss = lines.length
+    ? `⚠️ יימחקו מהאפליקציה:\n${lines.join('\n')}`
+    : 'לא נמצאו אימונים או רישומים שיימחקו, אבל הנתונים יוחלפו בעותק.';
+  return `הנתונים יוחלפו במצב של ${whenText}.\n\n${loss}\n\nאם רצית לגבות — בטל ולחץ על "גבה עכשיו לענן".`;
+}
+
 async function applyBackupBundle(bundle){
   for (const k of Object.keys(bundle)) await window.storage.set(k, bundle[k], false);
   dayDataCache = {};
@@ -5929,24 +5999,32 @@ async function renderCloudBackups(){
       const when = d.toLocaleDateString('he-IL') + ' ' + d.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit' });
       return `<div class="cb-row"><div><div>${when}</div><div class="meta">${Math.max(1, Math.round(it.size / 1024))} KB · ${it.keys} רשומות</div></div><button type="button" data-restore="${it.id}" data-when="${when}">שחזר</button></div>`;
     }).join('');
-    wrap.querySelectorAll('[data-restore]').forEach(btn => btn.addEventListener('click', () => {
-      showConfirm('לשחזר את הגיבוי?', `הנתונים באפליקציה יחזרו למצב של ${btn.dataset.when}. לפני השחזור נשמר גיבוי של המצב הנוכחי, כך שאפשר לחזור אחורה.`, () => restoreCloudBackup(btn.dataset.restore), 'שחזר');
+    wrap.querySelectorAll('[data-restore]').forEach(btn => btn.addEventListener('click', async () => {
+      let bundle;
+      try { bundle = await fetchCloudBackup(btn.dataset.restore); }
+      catch (e) { showToast('אי אפשר לפתוח את הגיבוי, נסה שוב'); return; }
+      const lines = backupLossLines(await collectAllData(), bundle);
+      showConfirm('⚠️ שחזור מוחק נתונים', restoreWarning(btn.dataset.when, lines), () => restoreCloudBackup(bundle), 'כן, לשחזר', { delay: 3 });
     }));
   } catch (e) {
     wrap.innerHTML = '<div style="color:var(--muted);font-size:13px">אי אפשר לטעון גיבויים כרגע (אין חיבור או לא מחובר).</div>';
   }
 }
 
-async function restoreCloudBackup(id){
+async function fetchCloudBackup(id){
+  const res = await fetch('/api/backups/' + encodeURIComponent(id), { credentials: 'same-origin' });
+  if (!res.ok) throw new Error();
+  const payload = JSON.parse(await gunzipB64((await res.json()).data));
+  const bundle = payload && payload.data ? payload.data : {};
+  delete bundle['auto-backup-last'];
+  if (!Object.keys(bundle).length) throw new Error();
+  return bundle;
+}
+
+async function restoreCloudBackup(bundle){
   try {
     showToast('משחזר…');
     if (!await createCloudBackup(false)) return; // safety copy of the current state first
-    const res = await fetch('/api/backups/' + encodeURIComponent(id), { credentials: 'same-origin' });
-    if (!res.ok) throw new Error();
-    const payload = JSON.parse(await gunzipB64((await res.json()).data));
-    const bundle = payload && payload.data ? payload.data : {};
-    delete bundle['auto-backup-last'];
-    if (!Object.keys(bundle).length) throw new Error();
     await applyBackupBundle(bundle);
     showToast('הגיבוי שוחזר ✓');
     renderCloudBackups();
@@ -5993,8 +6071,14 @@ async function importAllData(file){
       showToast('הקובץ לא מכיל נתונים תקינים');
       return;
     }
-    await applyBackupBundle(bundle);
-    showToast('הנתונים יובאו בהצלחה ✓');
+    const lines = backupLossLines(await collectAllData(), bundle);
+    const when = payload && payload.exportedAt ? new Date(payload.exportedAt).toLocaleDateString('he-IL') : 'הקובץ';
+    showConfirm('⚠️ ייבוא מוחק נתונים', restoreWarning(when, lines), async () => {
+      await createCloudBackup(true); // safety copy in the cloud when online
+      await applyBackupBundle(bundle);
+      showToast('הנתונים יובאו בהצלחה ✓');
+    }, 'כן, לייבא', { delay: 3 });
+    return;
   } catch (e) {
     showToast('ייבוא הקובץ נכשל — ודא שזה קובץ גיבוי תקין');
   }
@@ -7270,8 +7354,8 @@ document.getElementById('coachOverlay').addEventListener('click', (e) => {
 });
 
 // bump on every change that reaches the phone, and add a line to "History of changes" in CLAUDE.md
-const APP_VERSION = '1.71';
-const APP_VERSION_DATE = '18.11.2026';
+const APP_VERSION = '1.72';
+const APP_VERSION_DATE = '22.11.2026';
 document.getElementById('appVersion').textContent = `גרסה ${APP_VERSION} · ${APP_VERSION_DATE}`;
 
 async function init(){
