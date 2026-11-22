@@ -6024,7 +6024,11 @@ async function fetchCloudBackup(id){
 async function restoreCloudBackup(bundle){
   try {
     showToast('משחזר…');
-    if (!await createCloudBackup(false)) return; // safety copy of the current state first
+    // safety copy of the current state first: in the cloud, or — when today's 4 cloud backups are used up / offline — a file on the phone
+    if (!await createCloudBackup(true)){
+      if (!await exportAllData(true)){ showToast('לא הצלחתי לשמור עותק ביטחון — השחזור בוטל'); return; }
+      showToast('הענן מלא להיום — עותק ביטחון נשמר כקובץ בטלפון');
+    }
     await applyBackupBundle(bundle);
     showToast('הגיבוי שוחזר ✓');
     renderCloudBackups();
@@ -6041,7 +6045,7 @@ document.getElementById('cloudBackupBtn').addEventListener('click', async () => 
   if (ok){ showToast('הגיבוי נשמר בענן ☁️'); renderCloudBackups(); }
 });
 
-async function exportAllData(){
+async function exportAllData(quiet){
   try {
     const bundle = await collectAllData();
     const payload = { exportedAt: new Date().toISOString(), data: bundle };
@@ -6055,9 +6059,11 @@ async function exportAllData(){
     a.click();
     document.body.removeChild(a);
     setTimeout(() => URL.revokeObjectURL(url), 2000);
-    showToast('הגיבוי הורד בהצלחה ✓');
+    if (!quiet) showToast('הגיבוי הורד בהצלחה ✓');
+    return true;
   } catch (e) {
-    showToast('הגיבוי נכשל, נסה שוב');
+    if (!quiet) showToast('הגיבוי נכשל, נסה שוב');
+    return false;
   }
 }
 
@@ -6084,7 +6090,7 @@ async function importAllData(file){
   }
 }
 
-document.getElementById('exportBtn').addEventListener('click', exportAllData);
+document.getElementById('exportBtn').addEventListener('click', () => exportAllData());
 document.getElementById('importFileInput').addEventListener('change', (e) => {
   const file = e.target.files[0];
   if (file) importAllData(file);
@@ -7354,7 +7360,7 @@ document.getElementById('coachOverlay').addEventListener('click', (e) => {
 });
 
 // bump on every change that reaches the phone, and add a line to "History of changes" in CLAUDE.md
-const APP_VERSION = '1.72';
+const APP_VERSION = '1.73';
 const APP_VERSION_DATE = '22.11.2026';
 document.getElementById('appVersion').textContent = `גרסה ${APP_VERSION} · ${APP_VERSION_DATE}`;
 
