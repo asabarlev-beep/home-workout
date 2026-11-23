@@ -2045,6 +2045,7 @@ function defaultBarFor(name){
 // same id, so its history stays.
 const SPLIT_OLD_NAME = 'ספליט סקוואט או הליכת מספריים';
 const SPLIT_LEAN = { name: 'ספליט סקוואט בהטיה קדימה (ישבן)', target: '8 עד 12 חזרות · גו נוטה קדימה, שוק אנכית · RIR 1 עד 2 · מנוחה 2 דק׳' };
+const PULLOVER_CABLE = { name: 'פולאובר בכבל בעמידה', target: '12 עד 15 חזרות · ידיים ישרות · RIR 1 עד 2 · מנוחה 60 עד 90 שנ׳' };
 async function applyBarDefaults(){
   let changed = false;
   const lowerB = DAYS.find(d => d.key === 'd4');
@@ -2109,6 +2110,13 @@ async function applyBarDefaults(){
     if (ex.bar !== undefined) return;
     const b = defaultBarFor(ex.name);
     if (b !== undefined){ ex.bar = b; changed = true; }
+  }));
+  // 23.11.2026: the user's "מתח רחב בכבל" is a standing straight-arm cable pulldown (lat isolation), not a pull-up.
+  // Renamed (same id, history kept) with an isolation target. Runs once: only while the old name is in the plan.
+  DAYS.forEach(d => d.exercises.forEach(ex => {
+    if (/^\s*מתח רחב בכבל\s*$/.test(ex.name || '')){
+      ex.name = PULLOVER_CABLE.name; ex.target = PULLOVER_CABLE.target; changed = true;
+    }
   }));
   if (changed) await saveOverrides();
 }
@@ -2898,6 +2906,7 @@ const groupOf = (id) => DAYS.flatMap(d => activeExercises(d)).filter(e => canonI
 // a target with a rep range, by the kind of exercise — without a range the app never says when to go up
 function defaultTarget(name){
   if (/תאומים|calf/i.test(name)) return '12 עד 20 חזרות · RIR 0 עד 1 · מנוחה 60 עד 90 שנ׳';
+  if (/פולאובר|pullover|straight.?arm|ידיים ישרות/i.test(name)) return '12 עד 15 חזרות · RIR 1 עד 2 · מנוחה 60 עד 90 שנ׳';
   if (/סקוואט|דדליפט|לחיצ|חתירה|משיכ|מתח|לאנג|ספליט|מכרע|היפ ?טראסט|squat|deadlift|press|row|pull ?up|lunge|thrust/i.test(name)) return '8 עד 12 חזרות · RIR 1 עד 2 · מנוחה 2 דק׳';
   return '10 עד 15 חזרות · RIR 0 עד 1 · מנוחה 60 עד 90 שנ׳';
 }
@@ -3594,7 +3603,9 @@ function repRange(target){
   return m ? { lo: Number(m[1]), hi: Number(m[2]) } : null;
 }
 
-const isBodyweightExercise = (ex) => /מתח|מקבילים|שכיבות|pull ?up|chin|dip/i.test((ex && ex.name) || '');
+// v1.75: a cable / machine move is never bodyweight, even if its name says "מתח" (the user's "מתח רחב בכבל" got band chips)
+const isMachineName = (name) => /כבל|פולי|מכונה|cable|machine|pulley/i.test(name || '');
+const isBodyweightExercise = (ex) => /מתח|מקבילים|שכיבות|pull ?up|chin|dip/i.test((ex && ex.name) || '') && !isMachineName(ex && ex.name);
 
 /* v1.69: assisted pull-ups and dips. Without a band the log held only reps, so going to a lighter band looked like
    a step back. The band is logged per movement in 'band-log' {canonId: [[isoDate, assistKg], ...]} (sorted; one
@@ -3602,7 +3613,7 @@ const isBodyweightExercise = (ex) => /מתח|מקבילים|שכיבות|pull ?u
    entry the first band. exerciseTimeline gives each set of such a movement a `load` = body weight + added weight −
    band assist, and sessionScore uses it, so a lighter band at the same reps counts as progress. */
 const BANDS = [[0, 'בלי'], [4, 'דקה'], [11, '15–35'], [18, '30–50'], [29, '50–80']]; // assist in kg ≈ middle of the band's lb range
-const isBandExercise = (ex) => /מתח|מקבילים|pull ?up|chin|dip/i.test((ex && ex.name) || '');
+const isBandExercise = (ex) => /מתח|מקבילים|pull ?up|chin|dip/i.test((ex && ex.name) || '') && !isMachineName(ex && ex.name);
 let bandLog = null;
 async function loadBandLog(){
   if (bandLog) return bandLog;
@@ -6603,7 +6614,7 @@ const MUSCLE_GUESS = [
   ['בטן', /בטן|קראנץ|פלאנק|הרמ(ת|ות) (רגליים|ברכיים)|abs|crunch|plank|leg raise|knee raise/i],
   ['יד אחורית', /יישור מרפק|טרייספס|טריספס|tricep|pushdown|skull/i],
   ['יד קדמית', /כפיפת מרפק|פטיש|יד קדמית|biceps?|curl|hammer/i],
-  ['גב', /חתירה|רואו|מתח|משיכ|פולי עליון|גב|row|pull|lat\b|chin/i],
+  ['גב', /פולאובר|pullover|straight.?arm|חתירה|רואו|מתח|משיכ|פולי עליון|גב|row|pull|lat\b|chin/i],
   ['חזה', /חזה|פרפר|bench|chest|fly|dips|מקבילים/i],
 ];
 const guessMuscle = (name) => (MUSCLE_GUESS.find(([, re]) => re.test(name || '')) || [])[0] || '';
@@ -7372,7 +7383,7 @@ document.getElementById('coachOverlay').addEventListener('click', (e) => {
 });
 
 // bump on every change that reaches the phone, and add a line to "History of changes" in CLAUDE.md
-const APP_VERSION = '1.74';
+const APP_VERSION = '1.75';
 const APP_VERSION_DATE = '23.11.2026';
 document.getElementById('appVersion').textContent = `גרסה ${APP_VERSION} · ${APP_VERSION_DATE}`;
 
