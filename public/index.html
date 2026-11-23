@@ -1507,6 +1507,17 @@
     .ts-chip{ padding:7px 8px; font-size:12px; }
     .bottom-nav button span{ font-size:10.5px; }
   }
+  /* v1.74: at the user's large text (~230 px) the weight field was 37 px wide and "52.5" showed as "2.5".
+     Narrow the set-number and ✓ columns and the paddings so reps and weight get the room. */
+  @media (max-width:300px){
+    .card{ padding-left:10px; padding-right:10px; }
+    table.sets th:first-child{ width:28px !important; }
+    table.sets th:last-child{ width:38px !important; }
+    table.sets td{ padding:3px 1px; }
+    table.sets input{ padding:10px 0; letter-spacing:-.3px; }
+    .set-save-btn{ width:36px; height:40px; }
+    .set-idx-btn{ width:26px; height:26px; }
+  }
 </style>
 </head>
 <body>
@@ -5465,7 +5476,8 @@ const DEFAULT_PROTEIN_GOAL = 120;
 /* ---------------- protein pace through the day ----------------
    Share of the daily protein goal you would expect by a given hour, assuming 4 meals:
    07:00 0% · 10:00 25% · 14:00 55% · 19:00 85% · 21:30 100% (straight lines between). */
-const PROTEIN_PACE = [[7, 0], [10, 0.25], [14, 0.55], [19, 0.85], [21.5, 1]];
+// v1.74: the day ends at 23:00 (was 21:30) — he trains at 20:00 and the cottage before bed comes after it
+const PROTEIN_PACE = [[7, 0], [10, 0.25], [14, 0.55], [19, 0.8], [23, 1]];
 function proteinPaceShare(date){
   const h = date.getHours() + date.getMinutes() / 60;
   if (h <= PROTEIN_PACE[0][0]) return 0;
@@ -7360,8 +7372,8 @@ document.getElementById('coachOverlay').addEventListener('click', (e) => {
 });
 
 // bump on every change that reaches the phone, and add a line to "History of changes" in CLAUDE.md
-const APP_VERSION = '1.73';
-const APP_VERSION_DATE = '22.11.2026';
+const APP_VERSION = '1.74';
+const APP_VERSION_DATE = '23.11.2026';
 document.getElementById('appVersion').textContent = `גרסה ${APP_VERSION} · ${APP_VERSION_DATE}`;
 
 async function init(){
